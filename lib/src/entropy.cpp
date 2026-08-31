@@ -16,6 +16,7 @@
 namespace binwalk {
 namespace {
 
+#if defined(BINWALK_HAS_ZLIB)
 void append_big_endian(std::vector<std::uint8_t>& output, std::uint32_t value) {
     output.push_back(static_cast<std::uint8_t>((value >> 24U) & 0xffU));
     output.push_back(static_cast<std::uint8_t>((value >> 16U) & 0xffU));
@@ -23,7 +24,6 @@ void append_big_endian(std::vector<std::uint8_t>& output, std::uint32_t value) {
     output.push_back(static_cast<std::uint8_t>(value & 0xffU));
 }
 
-#if defined(BINWALK_HAS_ZLIB)
 void append_png_chunk(
     std::vector<std::uint8_t>& output,
     const std::array<std::uint8_t, 4>& type,

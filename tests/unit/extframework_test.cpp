@@ -94,12 +94,14 @@ std::filesystem::path make_test_root() {
     return base / name;
 }
 
+#if defined(_WIN32)
 void write_batch_file(const std::filesystem::path& path, const std::vector<std::string>& lines) {
     std::ofstream stream(path);
     for(const auto& line : lines) {
         stream << line << '\n';
     }
 }
+#endif
 
 void put_u16_le(std::vector<std::uint8_t>& data, std::size_t offset, std::uint16_t value) {
     data[offset] = static_cast<std::uint8_t>(value & 0xffU);

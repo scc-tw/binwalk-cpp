@@ -200,7 +200,16 @@ struct format_traits<mbr_format> {
     static std::string description() { return "DOS Master Boot Record"; }
     static std::vector<std::vector<std::uint8_t>> magic() { return {{0x55, 0xaa}}; }
     static binwalk::extractor extractor() {
-        return {extractor_type::internal, "mbr_built_in", detail::extract_mbr};
+        return {
+            extractor_type::internal,
+            "mbr_built_in",
+            detail::extract_mbr,
+            std::string{},
+            std::string{},
+            {},
+            {},
+            false
+        };
     }
 
     static std::optional<signature_result> parse(byte_view data, std::size_t offset) {

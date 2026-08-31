@@ -366,6 +366,8 @@ private:
                 : "the extraction utility '" + result.extractor + "' is not installed";
         case binwalk::extraction_failure::utility_failed:
             return "the extraction utility rejected the data";
+        case binwalk::extraction_failure::timed_out:
+            return "the extraction utility timed out";
         case binwalk::extraction_failure::no_output:
             return "the extractor produced no output";
         case binwalk::extraction_failure::write_error:

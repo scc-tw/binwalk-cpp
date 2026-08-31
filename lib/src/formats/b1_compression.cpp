@@ -751,7 +751,10 @@ struct format_traits<gzip_format> {
     static std::string description() { return "gzip compressed data"; }
     static std::vector<std::vector<std::uint8_t>> magic() { return {{0x1f, 0x8b, 0x08}}; }
     static binwalk::extractor extractor() {
-        return {extractor_type::internal, "gzip_built_in", detail::extract_gzip};
+        return {
+            extractor_type::internal, "gzip_built_in", detail::extract_gzip,
+            std::string{}, std::string{}, {}, {}, false
+        };
     }
 
     static std::optional<signature_result> parse(byte_view data, std::size_t offset) {
@@ -793,7 +796,10 @@ struct format_traits<xz_format> {
         return {{xz_magic_bytes.begin(), xz_magic_bytes.end()}};
     }
     static binwalk::extractor extractor() {
-        return {extractor_type::internal, "xz_built_in", extract_lzma_stream};
+        return {
+            extractor_type::internal, "xz_built_in", extract_lzma_stream,
+            std::string{}, std::string{}, {}, {}, false
+        };
     }
 
     static std::optional<signature_result> parse(byte_view data, std::size_t offset) {
@@ -874,7 +880,10 @@ struct format_traits<lzma_format> {
     }
 
     static binwalk::extractor extractor() {
-        return {extractor_type::internal, "lzma_built_in", extract_lzma_stream};
+        return {
+            extractor_type::internal, "lzma_built_in", extract_lzma_stream,
+            std::string{}, std::string{}, {}, {}, false
+        };
     }
 
     static std::optional<signature_result> parse(byte_view data, std::size_t offset) {
@@ -926,7 +935,10 @@ struct format_traits<bzip2_format> {
     }
 
     static binwalk::extractor extractor() {
-        return {extractor_type::internal, "bzip2_built_in", extract_bzip2_stream};
+        return {
+            extractor_type::internal, "bzip2_built_in", extract_bzip2_stream,
+            std::string{}, std::string{}, {}, {}, false
+        };
     }
 
     static std::optional<signature_result> parse(byte_view data, std::size_t offset) {
@@ -1167,7 +1179,10 @@ struct format_traits<zlib_format> {
         return {{0x78, 0x9c}, {0x78, 0xda}, {0x78, 0x5e}};
     }
     static binwalk::extractor extractor() {
-        return {extractor_type::internal, "zlib_built_in", detail::extract_zlib};
+        return {
+            extractor_type::internal, "zlib_built_in", detail::extract_zlib,
+            std::string{}, std::string{}, {}, {}, false
+        };
     }
 
     static std::optional<signature_result> parse(byte_view data, std::size_t offset) {
@@ -1196,7 +1211,10 @@ struct format_traits<gpg_signed_format> {
     static std::string description() { return "GPG signed file"; }
     static std::vector<std::vector<std::uint8_t>> magic() { return {{0xa3, 0x01}}; }
     static binwalk::extractor extractor() {
-        return {extractor_type::internal, "gpg_signed_built_in", extract_gpg_stream};
+        return {
+            extractor_type::internal, "gpg_signed_built_in", extract_gpg_stream,
+            std::string{}, std::string{}, {}, {}, false
+        };
     }
 
     static std::optional<signature_result> parse(byte_view data, std::size_t offset) {

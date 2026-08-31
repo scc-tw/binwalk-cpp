@@ -744,7 +744,16 @@ struct format_traits<uimage_format> {
     }
 
     static binwalk::extractor extractor() {
-        return {extractor_type::internal, "uimage_built_in", &extract_uimage};
+        return {
+            extractor_type::internal,
+            "uimage_built_in",
+            &extract_uimage,
+            std::string{},
+            std::string{},
+            {},
+            {},
+            false
+        };
     }
 
     static std::optional<signature_result> parse(byte_view data, std::size_t offset) {

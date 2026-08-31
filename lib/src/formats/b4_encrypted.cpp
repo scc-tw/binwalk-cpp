@@ -730,7 +730,10 @@ struct format_traits<arcadyan_format> {
         return single_magic(arcadyan_magic_bytes);
     }
     static binwalk::extractor extractor() {
-        return {extractor_type::internal, "arcadyan_built_in", &formats::extract_obfuscated_lzma};
+        return {
+            extractor_type::internal, "arcadyan_built_in", &formats::extract_obfuscated_lzma,
+            std::string{}, std::string{}, {}, {}, false
+        };
     }
 
     static std::optional<signature_result> parse(byte_view data, std::size_t offset) {
@@ -769,7 +772,10 @@ struct format_traits<openssl_format> {
         return single_magic(openssl_magic_bytes);
     }
     static binwalk::extractor extractor() {
-        return {extractor_type::internal, "openssl_built_in", &formats::encfw_decrypt};
+        return {
+            extractor_type::internal, "openssl_built_in", &formats::encfw_decrypt,
+            std::string{}, std::string{}, {}, {}, false
+        };
     }
 
     static std::optional<signature_result> parse(byte_view data, std::size_t offset) {
@@ -799,7 +805,10 @@ struct format_traits<autel_format> {
         return single_magic(autel_magic_bytes);
     }
     static binwalk::extractor extractor() {
-        return {extractor_type::internal, "autel_built_in", &formats::autel_deobfuscate};
+        return {
+            extractor_type::internal, "autel_built_in", &formats::autel_deobfuscate,
+            std::string{}, std::string{}, {}, {}, false
+        };
     }
 
     static std::optional<signature_result> parse(byte_view data, std::size_t offset) {
@@ -833,7 +842,10 @@ struct format_traits<dlink_tlv_format> {
         return single_magic(dlink_tlv_magic_bytes);
     }
     static binwalk::extractor extractor() {
-        return {extractor_type::internal, "dlink_tlv_built_in", &formats::encfw_decrypt};
+        return {
+            extractor_type::internal, "dlink_tlv_built_in", &formats::encfw_decrypt,
+            std::string{}, std::string{}, {}, {}, false
+        };
     }
 
     static std::optional<signature_result> parse(byte_view data, std::size_t offset) {
@@ -894,7 +906,10 @@ struct format_traits<shrs_format> {
         return single_magic(shrs_magic_bytes);
     }
     static binwalk::extractor extractor() {
-        return {extractor_type::internal, "shrs_built_in", &formats::encfw_decrypt};
+        return {
+            extractor_type::internal, "shrs_built_in", &formats::encfw_decrypt,
+            std::string{}, std::string{}, {}, {}, false
+        };
     }
 
     static std::optional<signature_result> parse(byte_view data, std::size_t offset) {
@@ -929,7 +944,10 @@ struct format_traits<encrpted_img_format> {
         return single_magic(encrpted_img_magic_bytes);
     }
     static binwalk::extractor extractor() {
-        return {extractor_type::internal, "encrpted_img_built_in", &formats::encfw_decrypt};
+        return {
+            extractor_type::internal, "encrpted_img_built_in", &formats::encfw_decrypt,
+            std::string{}, std::string{}, {}, {}, false
+        };
     }
 
     static std::optional<signature_result> parse(byte_view data, std::size_t offset) {
@@ -957,7 +975,10 @@ struct format_traits<dms_format> {
         return single_magic(dms_magic_bytes);
     }
     static binwalk::extractor extractor() {
-        return {extractor_type::internal, "dms_built_in", &formats::extract_swapped_u16};
+        return {
+            extractor_type::internal, "dms_built_in", &formats::extract_swapped_u16,
+            std::string{}, std::string{}, {}, {}, false
+        };
     }
 
     static std::optional<signature_result> parse(byte_view data, std::size_t offset) {
@@ -999,7 +1020,10 @@ struct format_traits<dkbs_format> {
         return single_magic(dkbs_magic_bytes);
     }
     static binwalk::extractor extractor() {
-        return {extractor_type::internal, "dkbs_built_in", &formats::encfw_decrypt};
+        return {
+            extractor_type::internal, "dkbs_built_in", &formats::encfw_decrypt,
+            std::string{}, std::string{}, {}, {}, false
+        };
     }
 
     static std::optional<signature_result> parse(byte_view data, std::size_t offset) {
@@ -1051,7 +1075,10 @@ struct format_traits<encfw_format> {
         return patterns;
     }
     static binwalk::extractor extractor() {
-        return {extractor_type::internal, "encfw_built_in", &formats::encfw_decrypt};
+        return {
+            extractor_type::internal, "encfw_built_in", &formats::encfw_decrypt,
+            std::string{}, std::string{}, {}, {}, false
+        };
     }
 
     static std::optional<signature_result> parse(byte_view data, std::size_t offset) {

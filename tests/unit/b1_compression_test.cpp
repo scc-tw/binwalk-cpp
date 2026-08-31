@@ -886,6 +886,12 @@ TEST(B1CompressionDetection, GpgSignedWholeFixture) {
     expect_single_hit("gpg_signed", data, 0, 888, tier::high);
 }
 
+#if defined(__GNUC__) && !defined(__clang__)
+#    pragma GCC diagnostic push
+// GCC 16 misdiagnoses this bounded std::vector fill insertion after inlining.
+#    pragma GCC diagnostic ignored "-Warray-bounds"
+#    pragma GCC diagnostic ignored "-Wstringop-overflow"
+#endif
 TEST(B1CompressionDetection, GpgSignedRejections) {
     const auto data = read_fixture("gpg_signed.bin");
     ASSERT_FALSE(data.empty()) << fixture_diagnostic();
@@ -897,6 +903,9 @@ TEST(B1CompressionDetection, GpgSignedRejections) {
     no_deflate.insert(no_deflate.end(), 24, 0xFF);
     expect_rejected("gpg_signed", no_deflate);
 }
+#if defined(__GNUC__) && !defined(__clang__)
+#    pragma GCC diagnostic pop
+#endif
 
 TEST(B1CompressionDetection, CompressdWholeFixture) {
     const auto data = read_fixture("compressd.bin");
@@ -982,6 +991,12 @@ TEST(B1CompressionDetection, ZlibCommittedFixture) {
     expect_single_hit("zlib", data, 0, 892, tier::high);
 }
 
+#if defined(__GNUC__) && !defined(__clang__)
+#    pragma GCC diagnostic push
+// GCC 16 misdiagnoses this bounded std::vector fill insertion after inlining.
+#    pragma GCC diagnostic ignored "-Warray-bounds"
+#    pragma GCC diagnostic ignored "-Wstringop-overflow"
+#endif
 TEST(B1CompressionDetection, ZlibRejections) {
 
     expect_rejected("zlib", std::vector<std::uint8_t>{0x78, 0xDA});
@@ -989,6 +1004,9 @@ TEST(B1CompressionDetection, ZlibRejections) {
     no_deflate.insert(no_deflate.end(), 24, 0xFF);
     expect_rejected("zlib", no_deflate);
 }
+#if defined(__GNUC__) && !defined(__clang__)
+#    pragma GCC diagnostic pop
+#endif
 
 TEST(B1CompressionDetection, ShortSignaturesAreNeverReportedAwayFromOffsetZero) {
 

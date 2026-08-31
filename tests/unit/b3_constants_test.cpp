@@ -1004,6 +1004,12 @@ TEST(B3ConstantsSafety, ARepeatedMagicYieldsOneResultPerCopy) {
     }
 }
 
+#if defined(__GNUC__) && !defined(__clang__)
+#    pragma GCC diagnostic push
+// GCC 16 misdiagnoses this bounded std::vector range insertion after inlining.
+#    pragma GCC diagnostic ignored "-Warray-bounds"
+#    pragma GCC diagnostic ignored "-Wstringop-overflow"
+#endif
 TEST(B3ConstantsSafety, TrailingMagicPrefixesNeverReadPastTheEnd) {
 
     for(const auto& entry : batch_entries()) {
@@ -1020,3 +1026,6 @@ TEST(B3ConstantsSafety, TrailingMagicPrefixesNeverReadPastTheEnd) {
         }
     }
 }
+#if defined(__GNUC__) && !defined(__clang__)
+#    pragma GCC diagnostic pop
+#endif

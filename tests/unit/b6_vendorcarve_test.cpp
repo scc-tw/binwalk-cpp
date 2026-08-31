@@ -1029,6 +1029,12 @@ TEST(B6VendorcarveRejections, JbootArmRejectsEveryReservedAndSanityFieldViolatio
     expect_rejected("jboot_arm", poked(data, 68, 1), 48, "reserved8 != 0");
 }
 
+#if defined(__GNUC__) && !defined(__clang__)
+#    pragma GCC diagnostic push
+// GCC 16 misdiagnoses this bounded std::vector growth after inlining.
+#    pragma GCC diagnostic ignored "-Warray-bounds"
+#    pragma GCC diagnostic ignored "-Wstringop-overflow"
+#endif
 TEST(B6VendorcarveRejections, JbootArmRejectsItsMagicStandingAloneAtOffsetZero) {
     bytes magic_only(16, 0x00);
     magic_only.push_back(0x42);
@@ -1041,6 +1047,9 @@ TEST(B6VendorcarveRejections, JbootArmRejectsItsMagicStandingAloneAtOffsetZero) 
     padded.insert(padded.end(), 256U, 0xA5);
     expect_rejected("jboot_arm", padded, 0, "magic at offset 0 followed by 256 bytes");
 }
+#if defined(__GNUC__) && !defined(__clang__)
+#    pragma GCC diagnostic pop
+#endif
 
 TEST(B6VendorcarveRejections, JbootStagRejectsACmarkThatIsNeitherFactoryNorTheId) {
     const auto data = read_fixture("jboot_stag.bin");
