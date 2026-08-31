@@ -196,6 +196,36 @@ std::vector<std::string> relative_components(const std::string& root, std::strin
     return stack;
 }
 
+bool traverses_above_root(const std::string& root, std::string_view path) noexcept {
+    const std::string_view trimmed = strip_leading_prefixes(root, path);
+    std::size_t depth = 0;
+
+    std::size_t start = 0;
+    for (;;) {
+        std::size_t end = start;
+        while (end < trimmed.size() && !is_separator(trimmed[end])) {
+            ++end;
+        }
+
+        const std::string_view component = trimmed.substr(start, end - start);
+        if (component == "..") {
+            if (depth == 0) {
+                return true;
+            }
+            --depth;
+        } else if (!component.empty() && component != ".") {
+            ++depth;
+        }
+
+        if (end >= trimmed.size()) {
+            break;
+        }
+        start = end + 1;
+    }
+
+    return false;
+}
+
 std::string join_components(const std::string& root, const std::vector<std::string>& components) {
     std::string out = root;
     for (const std::string& component : components) {
@@ -522,7 +552,10 @@ bool chroot::create_symlink(std::string_view path, std::string_view target) cons
         (!target.empty() && is_separator(target[0])) ||
         (target.size() >= 2 && is_ascii_alpha(target[0]) && target[1] == ':');
 
-    if (!target_is_absolute) {
+    // A destination that had to be clamped at the extraction root has lost
+    // some of its original parent context.  Do not reinterpret a relative
+    // target against that rewritten location: preserve it as inert metadata.
+    if (!target_is_absolute && !traverses_above_root(root_, path)) {
         std::vector<std::string> resolved(link_components.begin(), link_components.end() - 1);
         bool escaped = false;
 

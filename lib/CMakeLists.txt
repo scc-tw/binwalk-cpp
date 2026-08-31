@@ -44,30 +44,27 @@ if(BINWALK_WITH_ZLIB)
     target_compile_definitions(binwalk_core PRIVATE BINWALK_HAS_ZLIB=1)
 endif()
 
-# The five fetched codec libraries are declared EXCLUDE_FROM_ALL, which drops
-# their install rules, so none of them lands in any export set. The
-# $<BUILD_INTERFACE:...> wrapper is therefore load-bearing, not decoration: a
-# bare link line makes install(EXPORT binwalkTargets) fail with "requires target
-# X that is not in any export set". zlib above is the one exemption, because it
-# keeps its own install/export.
+# Private dependencies of a static library remain link requirements for its
+# consumers. System codec targets are rediscovered by binwalkConfig.cmake, and
+# FetchContent-built codec targets are installed in binwalk's export set.
 if(BINWALK_WITH_BZIP2)
-    target_link_libraries(binwalk_core PRIVATE "$<BUILD_INTERFACE:${BINWALK_BZIP2_TARGET}>")
+    target_link_libraries(binwalk_core PRIVATE ${BINWALK_BZIP2_TARGET})
     target_compile_definitions(binwalk_core PRIVATE BINWALK_HAS_BZIP2=1)
 endif()
 if(BINWALK_WITH_LZMA)
-    target_link_libraries(binwalk_core PRIVATE "$<BUILD_INTERFACE:${BINWALK_LZMA_TARGET}>")
+    target_link_libraries(binwalk_core PRIVATE ${BINWALK_LZMA_TARGET})
     target_compile_definitions(binwalk_core PRIVATE BINWALK_HAS_LZMA=1)
 endif()
 if(BINWALK_WITH_LZ4)
-    target_link_libraries(binwalk_core PRIVATE "$<BUILD_INTERFACE:${BINWALK_LZ4_TARGET}>")
+    target_link_libraries(binwalk_core PRIVATE ${BINWALK_LZ4_TARGET})
     target_compile_definitions(binwalk_core PRIVATE BINWALK_HAS_LZ4=1)
 endif()
 if(BINWALK_WITH_ZSTD)
-    target_link_libraries(binwalk_core PRIVATE "$<BUILD_INTERFACE:${BINWALK_ZSTD_TARGET}>")
+    target_link_libraries(binwalk_core PRIVATE ${BINWALK_ZSTD_TARGET})
     target_compile_definitions(binwalk_core PRIVATE BINWALK_HAS_ZSTD=1)
 endif()
 if(BINWALK_WITH_LZFSE)
-    target_link_libraries(binwalk_core PRIVATE "$<BUILD_INTERFACE:${BINWALK_LZFSE_TARGET}>")
+    target_link_libraries(binwalk_core PRIVATE ${BINWALK_LZFSE_TARGET})
     target_compile_definitions(binwalk_core PRIVATE BINWALK_HAS_LZFSE=1)
 endif()
 if(BINWALK_WITH_LZO)

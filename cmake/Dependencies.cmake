@@ -1,5 +1,14 @@
 include(FetchContent)
 
+# A static binwalk package must carry codec archives that FetchContent builds.
+# System-provided codecs are rediscovered by binwalkConfig.cmake instead.
+set(BINWALK_BUNDLED_CODEC_TARGETS)
+set(BINWALK_BZIP2_BUNDLED OFF)
+set(BINWALK_LZMA_BUNDLED OFF)
+set(BINWALK_LZ4_BUNDLED OFF)
+set(BINWALK_ZSTD_BUNDLED OFF)
+set(BINWALK_LZFSE_BUNDLED OFF)
+
 function(binwalk_find_or_fetch package target repository tag)
     find_package(${package} CONFIG QUIET)
     if(TARGET ${target})
@@ -187,6 +196,8 @@ if(BINWALK_WITH_BZIP2)
             target_compile_options(binwalk_bz2 PRIVATE -w)
         endif()
         set(BINWALK_BZIP2_TARGET binwalk_bz2)
+        set(BINWALK_BZIP2_BUNDLED ON)
+        list(APPEND BINWALK_BUNDLED_CODEC_TARGETS binwalk_bz2)
     else()
         message(FATAL_ERROR
             "BZip2 was not found. Install it, disable BINWALK_WITH_BZIP2, or enable "
@@ -242,6 +253,8 @@ if(BINWALK_WITH_LZMA)
             PUBLIC "$<BUILD_INTERFACE:${xz_SOURCE_DIR}/src/liblzma/api>"
         )
         set(BINWALK_LZMA_TARGET liblzma)
+        set(BINWALK_LZMA_BUNDLED ON)
+        list(APPEND BINWALK_BUNDLED_CODEC_TARGETS liblzma)
     else()
         message(FATAL_ERROR
             "LibLZMA was not found. Install it, disable BINWALK_WITH_LZMA, or enable "
@@ -288,6 +301,8 @@ if(BINWALK_WITH_LZ4)
         # include interface makes CMake's export-consistency check fail at the
         # GENERATE step for any target in an install(EXPORT) set.
         set(BINWALK_LZ4_TARGET lz4_static)
+        set(BINWALK_LZ4_BUNDLED ON)
+        list(APPEND BINWALK_BUNDLED_CODEC_TARGETS lz4_static)
     else()
         message(FATAL_ERROR
             "lz4 was not found. Install it, disable BINWALK_WITH_LZ4, or enable "
@@ -343,6 +358,8 @@ if(BINWALK_WITH_ZSTD)
         # would discard zstd's own BUILD_INTERFACE and INSTALL_INTERFACE entries.
         # Removing the redundant line is the minimal, non-destructive fix.
         set(BINWALK_ZSTD_TARGET libzstd_static)
+        set(BINWALK_ZSTD_BUNDLED ON)
+        list(APPEND BINWALK_BUNDLED_CODEC_TARGETS libzstd_static)
     else()
         message(FATAL_ERROR
             "zstd was not found. Install it, disable BINWALK_WITH_ZSTD, or enable "
@@ -398,6 +415,8 @@ if(BINWALK_WITH_LZFSE)
             target_compile_options(lzfse PRIVATE /W0)
         endif()
         set(BINWALK_LZFSE_TARGET lzfse)
+        set(BINWALK_LZFSE_BUNDLED ON)
+        list(APPEND BINWALK_BUNDLED_CODEC_TARGETS lzfse)
     else()
         message(FATAL_ERROR
             "lzfse was not found. Install it, disable BINWALK_WITH_LZFSE, or enable "

@@ -1,12 +1,33 @@
 @PACKAGE_INIT@
 
+include(CMakeFindDependencyMacro)
+
 if(@BINWALK_WITH_ZLIB@)
-    include(CMakeFindDependencyMacro)
     if(@BINWALK_ZLIB_USE_CONFIG_PACKAGE@)
         find_dependency(ZLIB CONFIG COMPONENTS static)
     else()
         find_dependency(ZLIB)
     endif()
+endif()
+
+if(@BINWALK_WITH_BZIP2@ AND NOT @BINWALK_BZIP2_BUNDLED@)
+    find_dependency(BZip2)
+endif()
+
+if(@BINWALK_WITH_LZMA@ AND NOT @BINWALK_LZMA_BUNDLED@)
+    find_dependency(LibLZMA)
+endif()
+
+if(@BINWALK_WITH_LZ4@ AND NOT @BINWALK_LZ4_BUNDLED@)
+    find_dependency(lz4 CONFIG)
+endif()
+
+if(@BINWALK_WITH_ZSTD@ AND NOT @BINWALK_ZSTD_BUNDLED@)
+    find_dependency(zstd CONFIG)
+endif()
+
+if(@BINWALK_WITH_LZFSE@ AND NOT @BINWALK_LZFSE_BUNDLED@)
+    find_dependency(lzfse CONFIG)
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/binwalkTargets.cmake")

@@ -68,6 +68,14 @@ configure_package_config_file(
     INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/binwalk"
 )
 
+if(NOT BUILD_SHARED_LIBS AND BINWALK_BUNDLED_CODEC_TARGETS)
+    install(
+        TARGETS ${BINWALK_BUNDLED_CODEC_TARGETS}
+        EXPORT binwalkTargets
+        ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}/binwalk"
+    )
+endif()
+
 install(
     EXPORT binwalkTargets
     FILE binwalkTargets.cmake
