@@ -25,6 +25,9 @@ struct mbr_format {};
 struct pdf_format {};
 struct png_format {};
 struct riff_format {};
+struct sevenzip_format {};
+struct zip_format {};
+struct zlib_format {};
 
 [[nodiscard]] bool bytes_equal(
     byte_view data,
@@ -57,6 +60,113 @@ struct riff_format {};
     std::ostringstream output;
     output << std::put_time(&utc, "%Y-%m-%d %H:%M:%S");
     return output.str();
+}
+
+[[nodiscard]] std::uint32_t crc32_ieee(
+    byte_view data,
+    std::size_t offset,
+    std::size_t size
+) {
+    if(!data.contains(offset, size)) {
+        return 0;
+    }
+    std::uint32_t crc = 0xffffffffU;
+    for(std::size_t index = 0; index < size; ++index) {
+        crc ^= data[offset + index];
+        for(int bit = 0; bit < 8; ++bit) {
+            const auto mask = static_cast<std::uint32_t>(
+                -static_cast<std::int32_t>(crc & 1U)
+            );
+            crc = (crc >> 1U) ^ (0xedb88320U & mask);
+        }
+    }
+    return ~crc;
+}
+
+struct zip_local_header {
+    std::size_t total_size = 0;
+    std::uint16_t version_major = 0;
+    std::uint16_t version_minor = 0;
+};
+
+[[nodiscard]] std::optional<zip_local_header> parse_zip_local_header(
+    byte_view data,
+    std::size_t offset
+) {
+    constexpr std::size_t fixed_size = 30;
+    constexpr std::uint16_t unused_flags_mask = 0xd780;
+    static constexpr std::array<std::uint16_t, 23> allowed_compression_methods{
+        0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 12, 14, 18, 19, 20, 93, 94, 95, 96, 97, 98, 99,
+        0xffff
+    };
+    if(!data.contains(offset, fixed_size)
+        || data[offset] != 'P'
+        || data[offset + 1] != 'K'
+        || data[offset + 2] != 0x03
+        || data[offset + 3] != 0x04) {
+        return std::nullopt;
+    }
+    binary_reader<byte_order::little> reader(data);
+    const auto version = reader.read<std::uint16_t>(offset + 4);
+    const auto flags = reader.read<std::uint16_t>(offset + 6);
+    const auto compression = reader.read<std::uint16_t>(offset + 8);
+    const auto compressed_size = reader.read<std::uint32_t>(offset + 18);
+    const auto uncompressed_size = reader.read<std::uint32_t>(offset + 22);
+    const auto name_size = reader.read<std::uint16_t>(offset + 26);
+    const auto extra_size = reader.read<std::uint16_t>(offset + 28);
+    if(!version || !flags || !compression || !compressed_size || !uncompressed_size
+        || !name_size || !extra_size
+        || (*flags & unused_flags_mask) != 0
+        || std::find(
+            allowed_compression_methods.begin(),
+            allowed_compression_methods.end() - 1,
+            *compression
+        ) == allowed_compression_methods.end() - 1) {
+        return std::nullopt;
+    }
+    const auto header_size = fixed_size + *name_size + *extra_size;
+    const auto data_size = *compressed_size > 0 ? *compressed_size : *uncompressed_size;
+    if(header_size > data.size() - offset
+        || data_size > data.size() - offset - header_size) {
+        return std::nullopt;
+    }
+    return zip_local_header{
+        header_size + data_size,
+        static_cast<std::uint16_t>(*version / 10U),
+        static_cast<std::uint16_t>(*version % 10U)
+    };
+}
+
+struct zip_eocd_info {
+    std::size_t end = 0;
+    std::uint16_t file_count = 0;
+};
+
+[[nodiscard]] std::optional<zip_eocd_info> find_zip_eocd(
+    byte_view data,
+    std::size_t offset
+) {
+    constexpr std::size_t fixed_size = 22;
+    binary_reader<byte_order::little> reader(data);
+    for(std::size_t cursor = offset; data.contains(cursor, 8); ++cursor) {
+        if(data[cursor] != 'P' || data[cursor + 1] != 'K'
+            || data[cursor + 2] != 0x05 || data[cursor + 3] != 0x06
+            || data[cursor + 4] != 0 || data[cursor + 5] != 0
+            || data[cursor + 6] != 0 || data[cursor + 7] != 0
+            || !data.contains(cursor, fixed_size)) {
+            continue;
+        }
+        const auto disk_entries = reader.read<std::uint16_t>(cursor + 8);
+        const auto total_entries = reader.read<std::uint16_t>(cursor + 10);
+        const auto comment_size = reader.read<std::uint16_t>(cursor + 20);
+        if(!disk_entries || !total_entries || !comment_size
+            || *disk_entries != *total_entries || *total_entries == 0
+            || !data.contains(cursor, fixed_size + *comment_size)) {
+            continue;
+        }
+        return zip_eocd_info{cursor + fixed_size + *comment_size, *total_entries};
+    }
+    return std::nullopt;
 }
 
 } // namespace
@@ -495,15 +605,145 @@ struct format_traits<riff_format> {
     }
 };
 
+template<>
+struct format_traits<sevenzip_format> {
+    static constexpr bool short_signature = false;
+    static constexpr std::size_t magic_offset = 0;
+    static constexpr bool always_display = false;
+
+    static std::string name() { return "7zip"; }
+    static std::string description() { return "7-zip archive data"; }
+    static std::vector<std::vector<std::uint8_t>> magic() {
+        return {{'7', 'z', 0xbc, 0xaf, 0x27, 0x1c}};
+    }
+
+    static std::optional<signature_result> parse(byte_view data, std::size_t offset) {
+        constexpr std::size_t header_size = 32;
+        constexpr std::size_t header_crc_start = 12;
+        constexpr std::size_t header_crc_size = 20;
+        if(!data.contains(offset, header_size)) {
+            return std::nullopt;
+        }
+        binary_reader<byte_order::little> reader(data);
+        const auto header_crc = reader.read<std::uint32_t>(offset + 8);
+        const auto next_offset = reader.read<std::uint64_t>(offset + 12);
+        const auto next_size = reader.read<std::uint64_t>(offset + 20);
+        const auto next_crc = reader.read<std::uint32_t>(offset + 28);
+        if(!header_crc || !next_offset || !next_size || !next_crc
+            || crc32_ieee(data, offset + header_crc_start, header_crc_size) != *header_crc
+            || *next_offset > data.size() - offset - header_size
+            || *next_size > data.size() - offset - header_size - *next_offset) {
+            return std::nullopt;
+        }
+        const auto next_start = offset + header_size + static_cast<std::size_t>(*next_offset);
+        if(crc32_ieee(data, next_start, static_cast<std::size_t>(*next_size)) != *next_crc) {
+            return std::nullopt;
+        }
+        const auto total_size = header_size + *next_offset + *next_size;
+        signature_result result;
+        result.offset = offset;
+        result.size = total_size;
+        result.confidence = confidence_high;
+        result.description = description() + ", version "
+            + std::to_string(data[offset + 6]) + "." + std::to_string(data[offset + 7])
+            + ", total size: " + std::to_string(total_size) + " bytes";
+        return result;
+    }
+};
+
+template<>
+struct format_traits<zip_format> {
+    static constexpr bool short_signature = false;
+    static constexpr std::size_t magic_offset = 0;
+    static constexpr bool always_display = false;
+
+    static std::string name() { return "zip"; }
+    static std::string description() { return "ZIP archive"; }
+    static std::vector<std::vector<std::uint8_t>> magic() {
+        return {{'P', 'K', 0x03, 0x04}};
+    }
+
+    static std::optional<signature_result> parse(byte_view data, std::size_t offset) {
+        const auto first = parse_zip_local_header(data, offset);
+        if(!first) {
+            return std::nullopt;
+        }
+        signature_result result;
+        result.offset = offset;
+        result.confidence = confidence_high;
+        if(const auto eocd = find_zip_eocd(data, offset)) {
+            result.size = eocd->end - offset;
+            result.description = description() + ", version: "
+                + std::to_string(first->version_major) + "."
+                + std::to_string(first->version_minor) + ", file count: "
+                + std::to_string(eocd->file_count) + ", total size: "
+                + std::to_string(result.size) + " bytes";
+            return result;
+        }
+
+        auto cursor = offset + first->total_size;
+        while(cursor < data.size()) {
+            const auto next = parse_zip_local_header(data, cursor);
+            if(!next) {
+                break;
+            }
+            cursor += next->total_size;
+        }
+        if(cursor <= offset) {
+            return std::nullopt;
+        }
+        result.size = cursor - offset;
+        result.description = description() + ", version: "
+            + std::to_string(first->version_major) + "."
+            + std::to_string(first->version_minor)
+            + ", missing end-of-central-directory header, total size: "
+            + std::to_string(result.size) + " bytes";
+        return result;
+    }
+};
+
+template<>
+struct format_traits<zlib_format> {
+    static constexpr bool short_signature = true;
+    static constexpr std::size_t magic_offset = 0;
+    static constexpr bool always_display = false;
+
+    static std::string name() { return "zlib"; }
+    static std::string description() { return "Zlib compressed file"; }
+    static std::vector<std::vector<std::uint8_t>> magic() {
+        return {{0x78, 0x9c}, {0x78, 0xda}, {0x78, 0x5e}};
+    }
+    static binwalk::extractor extractor() {
+        return {extractor_type::internal, "zlib_built_in", detail::extract_zlib};
+    }
+
+    static std::optional<signature_result> parse(byte_view data, std::size_t offset) {
+        const auto info = detail::inspect_zlib(data, offset);
+        if(!info) {
+            return std::nullopt;
+        }
+        signature_result result;
+        result.offset = offset;
+        result.size = info->total_size;
+        result.confidence = confidence_high;
+        result.description = description() + ", total size: "
+            + std::to_string(result.size) + " bytes";
+        return result;
+    }
+};
+
 std::vector<signature> builtin_signatures() {
     return make_signatures(type_list<
         gzip_format,
+        sevenzip_format,
         bmp_format,
+        zip_format,
         pdf_format,
         png_format,
         jpeg_format,
         riff_format,
-        mbr_format
+        mbr_format,
+        zlib_format
     >{});
 }
 

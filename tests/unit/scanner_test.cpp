@@ -22,6 +22,26 @@ std::vector<std::uint8_t> minimal_png() {
     };
 }
 
+std::uint32_t test_crc32(const std::vector<std::uint8_t>& data, std::size_t offset, std::size_t size) {
+    std::uint32_t crc = 0xffffffffU;
+    for(std::size_t index = 0; index < size; ++index) {
+        crc ^= data[offset + index];
+        for(int bit = 0; bit < 8; ++bit) {
+            const auto mask = static_cast<std::uint32_t>(
+                -static_cast<std::int32_t>(crc & 1U)
+            );
+            crc = (crc >> 1U) ^ (0xedb88320U & mask);
+        }
+    }
+    return ~crc;
+}
+
+void write_u32_le(std::vector<std::uint8_t>& data, std::size_t offset, std::uint32_t value) {
+    for(std::size_t index = 0; index < 4; ++index) {
+        data[offset + index] = static_cast<std::uint8_t>(value >> (index * 8U));
+    }
+}
+
 } // namespace
 
 TEST(Scanner, FindsAndValidatesPng) {
@@ -113,6 +133,65 @@ TEST(Scanner, ValidatesAndExtractsGzipWithTheNativeZlibBackend) {
         / "decompressed.bin";
     ASSERT_EQ(std::filesystem::file_size(decompressed), 5U);
     std::filesystem::remove_all(output_root, error);
+}
+
+TEST(Scanner, ValidatesAndExtractsZlibWithTheNativeBackend) {
+    const std::vector<std::uint8_t> data{
+        0x78, 0x9c, 0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x07, 0x00,
+        0x06, 0x2c, 0x02, 0x15
+    };
+    const auto output_root = std::filesystem::temp_directory_path()
+        / "binwalk_cpp_zlib_test";
+    std::error_code error;
+    std::filesystem::remove_all(output_root, error);
+
+    const binwalk::scanner scanner;
+    const auto analysis = scanner.analyze(
+        binwalk::byte_view(data), "fixture.zlib", true, output_root.string()
+    );
+
+    ASSERT_EQ(analysis.file_map.size(), 1U);
+    EXPECT_EQ(analysis.file_map[0].name, "zlib");
+    EXPECT_EQ(analysis.file_map[0].size, data.size());
+    ASSERT_EQ(analysis.extractions.size(), 1U);
+    EXPECT_TRUE(analysis.extractions.begin()->second.success);
+    std::filesystem::remove_all(output_root, error);
+}
+
+TEST(Scanner, ParsesZipEndOfCentralDirectory) {
+    std::vector<std::uint8_t> data(31, 0);
+    data[0] = 'P'; data[1] = 'K'; data[2] = 0x03; data[3] = 0x04;
+    data[4] = 20;
+    data[26] = 1;
+    data[30] = 'a';
+    const std::vector<std::uint8_t> eocd{
+        'P', 'K', 0x05, 0x06, 0, 0, 0, 0, 1, 0, 1, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    };
+    data.insert(data.end(), eocd.begin(), eocd.end());
+
+    const binwalk::scanner scanner;
+    const auto results = scanner.scan(binwalk::byte_view(data));
+    ASSERT_EQ(results.size(), 1U);
+    EXPECT_EQ(results[0].name, "zip");
+    EXPECT_EQ(results[0].size, data.size());
+    EXPECT_NE(results[0].description.find("file count: 1"), std::string::npos);
+}
+
+TEST(Scanner, ValidatesSevenZipHeaderAndNextHeaderCrcs) {
+    std::vector<std::uint8_t> data(33, 0);
+    data[0] = '7'; data[1] = 'z'; data[2] = 0xbc; data[3] = 0xaf;
+    data[4] = 0x27; data[5] = 0x1c; data[7] = 4;
+    data[20] = 1;
+    write_u32_le(data, 28, test_crc32(data, 32, 1));
+    write_u32_le(data, 8, test_crc32(data, 12, 20));
+
+    const binwalk::scanner scanner;
+    const auto results = scanner.scan(binwalk::byte_view(data));
+    ASSERT_EQ(results.size(), 1U);
+    EXPECT_EQ(results[0].name, "7zip");
+    EXPECT_EQ(results[0].size, data.size());
+    EXPECT_EQ(results[0].confidence, binwalk::confidence_high);
 }
 
 TEST(Scanner, ParsesRiffChunkTypeAndSize) {

@@ -33,6 +33,18 @@ namespace {
     return false;
 }
 
+[[nodiscard]] bool is_within(
+    const std::filesystem::path& child,
+    const std::filesystem::path& parent
+) {
+    const auto relative = child.lexically_relative(parent);
+    if(relative.empty() || relative.is_absolute()) {
+        return false;
+    }
+    const auto first = relative.begin();
+    return first != relative.end() && *first != "..";
+}
+
 } // namespace
 
 extraction_result execute_extractor(
@@ -47,14 +59,25 @@ extraction_result execute_extractor(
         return result;
     }
 
+    std::error_code error;
+    const auto root = std::filesystem::absolute(output_root, error).lexically_normal();
+    if(error) {
+        return result;
+    }
+    error.clear();
+    const auto source = std::filesystem::absolute(source_path, error).lexically_normal();
+    if(error) {
+        return result;
+    }
+
     std::ostringstream offset_name;
     offset_name << std::uppercase << std::hex << signature.offset;
-    const auto source_name = safe_component(std::filesystem::path(source_path).filename().string());
-    const auto output_directory = std::filesystem::path(output_root)
-        / (source_name + ".extracted")
-        / offset_name.str();
+    const auto source_name = safe_component(source.filename().string());
+    const auto extraction_base = is_within(source, root)
+        ? std::filesystem::path(source.string() + ".extracted")
+        : root / (source_name + ".extracted");
+    const auto output_directory = extraction_base / offset_name.str();
 
-    std::error_code error;
     std::filesystem::remove_all(output_directory, error);
     error.clear();
     std::filesystem::create_directories(output_directory, error);

@@ -8,6 +8,7 @@ target_link_libraries(
         binwalk::core
         CLI11::CLI11
         nlohmann_json::nlohmann_json
+        Threads::Threads
 )
 
 binwalk_enable_warnings(binwalk_cli)

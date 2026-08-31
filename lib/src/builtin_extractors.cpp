@@ -69,6 +69,7 @@ namespace {
 struct raw_inflate_result {
     bool success = false;
     std::size_t input_size = 0;
+    std::uint32_t adler32 = 1;
 };
 
 [[nodiscard]] raw_inflate_result inflate_raw(
@@ -98,6 +99,7 @@ struct raw_inflate_result {
     std::array<std::uint8_t, output_buffer_size> output_buffer{};
     std::size_t supplied = 0;
     std::uint64_t total_output = 0;
+    auto adler_checksum = ::adler32(0L, Z_NULL, 0);
     const auto input_size = data.size() - offset;
 
     for(;;) {
@@ -118,6 +120,13 @@ struct raw_inflate_result {
         const auto status = inflate(&stream, Z_NO_FLUSH);
         const auto produced = output_buffer.size() - stream.avail_out;
         total_output += produced;
+        if(produced > 0) {
+            adler_checksum = ::adler32(
+                adler_checksum,
+                reinterpret_cast<const Bytef*>(output_buffer.data()),
+                static_cast<uInt>(produced)
+            );
+        }
 
         if(output_path != nullptr && produced > 0) {
             output.write(
@@ -133,6 +142,7 @@ struct raw_inflate_result {
         if(status == Z_STREAM_END) {
             result.success = total_output > 0;
             result.input_size = supplied - stream.avail_in;
+            result.adler32 = static_cast<std::uint32_t>(adler_checksum);
             inflateEnd(&stream);
             return result;
         }
@@ -286,6 +296,34 @@ std::optional<gzip_info> inspect_gzip(byte_view data, std::size_t offset) {
 #endif
 }
 
+std::optional<zlib_info> inspect_zlib(byte_view data, std::size_t offset) {
+#if defined(BINWALK_HAS_ZLIB)
+    constexpr std::size_t header_size = 2;
+    constexpr std::size_t checksum_size = 4;
+    if(!data.contains(offset, header_size)) {
+        return std::nullopt;
+    }
+    const auto inflated = inflate_raw(data, offset + header_size, nullptr);
+    if(!inflated.success) {
+        return std::nullopt;
+    }
+    const auto checksum_offset = offset + header_size + inflated.input_size;
+    binary_reader<byte_order::big> reader(data);
+    const auto reported_checksum = reader.read<std::uint32_t>(checksum_offset);
+    if(!reported_checksum || *reported_checksum != inflated.adler32) {
+        return std::nullopt;
+    }
+    return zlib_info{
+        inflated.input_size,
+        header_size + inflated.input_size + checksum_size
+    };
+#else
+    (void)data;
+    (void)offset;
+    return std::nullopt;
+#endif
+}
+
 extraction_result extract_bmp(
     byte_view data,
     const signature_result& signature,
@@ -347,6 +385,39 @@ extraction_result extract_riff(
         output_name = "video.wav";
     }
     return carve_single(data, signature, output_directory, output_name);
+}
+
+extraction_result extract_zlib(
+    byte_view data,
+    const signature_result& signature,
+    const std::string& output_directory
+) {
+    extraction_result result;
+#if defined(BINWALK_HAS_ZLIB)
+    constexpr std::size_t header_size = 2;
+    const auto output_path = std::filesystem::path(output_directory) / "decompressed.bin";
+    const auto inflated = inflate_raw(
+        data,
+        static_cast<std::size_t>(signature.offset) + header_size,
+        &output_path
+    );
+    if(!inflated.success) {
+        return result;
+    }
+    const auto checksum_offset = static_cast<std::size_t>(signature.offset)
+        + header_size + inflated.input_size;
+    binary_reader<byte_order::big> reader(data);
+    const auto reported_checksum = reader.read<std::uint32_t>(checksum_offset);
+    if(reported_checksum && *reported_checksum == inflated.adler32) {
+        result.success = true;
+        result.size = header_size + inflated.input_size + 4U;
+    }
+#else
+    (void)data;
+    (void)signature;
+    (void)output_directory;
+#endif
+    return result;
 }
 
 extraction_result extract_mbr(

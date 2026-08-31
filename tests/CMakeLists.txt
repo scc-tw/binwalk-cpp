@@ -8,6 +8,21 @@ add_executable(
 
 target_compile_features(binwalk_tests PRIVATE cxx_std_17)
 target_link_libraries(binwalk_tests PRIVATE binwalk::core GTest::gtest_main)
+
+if(BINWALK_BUILD_CLI)
+    target_sources(binwalk_tests PRIVATE integration/cli_test.cpp)
+    target_link_libraries(binwalk_tests PRIVATE nlohmann_json::nlohmann_json)
+    target_compile_definitions(
+        binwalk_tests
+        PRIVATE BINWALK_CLI_PATH="$<TARGET_FILE:binwalk_cli>"
+    )
+    add_dependencies(binwalk_tests binwalk_cli)
+endif()
+
+if(BINWALK_WITH_ZLIB)
+    target_compile_definitions(binwalk_tests PRIVATE BINWALK_TEST_HAS_ZLIB=1)
+endif()
+
 binwalk_enable_warnings(binwalk_tests)
 
 if(WIN32 AND BUILD_SHARED_LIBS)

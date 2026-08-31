@@ -3,6 +3,11 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
+#include <system_error>
 #include <vector>
 
 TEST(Entropy, ReturnsZeroForAConstantBlock) {
@@ -29,3 +34,29 @@ TEST(Entropy, ReturnsEightForAllByteValues) {
 TEST(Entropy, HandlesEmptyInput) {
     EXPECT_TRUE(binwalk::entropy_blocks({}).empty());
 }
+
+#if defined(BINWALK_TEST_HAS_ZLIB)
+TEST(Entropy, WritesAValidPngGraph) {
+    const std::vector<std::uint8_t> data{0, 0, 0, 0, 1, 2, 3, 4};
+    const auto blocks = binwalk::entropy_blocks(binwalk::byte_view(data), 2);
+    const auto output = std::filesystem::temp_directory_path()
+        / "binwalk_cpp_entropy_test.png";
+    std::error_code error;
+    std::filesystem::remove(output, error);
+
+    ASSERT_TRUE(binwalk::write_entropy_png(blocks, output.string(), 256, 128));
+    std::ifstream input(output, std::ios::binary);
+    const std::vector<std::uint8_t> bytes{
+        std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()
+    };
+    const std::vector<std::uint8_t> expected_signature{
+        0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a
+    };
+    ASSERT_GT(bytes.size(), 100U);
+    EXPECT_TRUE(std::equal(
+        expected_signature.begin(), expected_signature.end(), bytes.begin()
+    ));
+
+    std::filesystem::remove(output, error);
+}
+#endif

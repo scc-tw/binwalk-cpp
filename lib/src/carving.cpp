@@ -66,6 +66,18 @@ namespace {
     return result;
 }
 
+[[nodiscard]] bool is_within(
+    const std::filesystem::path& child,
+    const std::filesystem::path& parent
+) {
+    const auto relative = child.lexically_relative(parent);
+    if(relative.empty() || relative.is_absolute()) {
+        return false;
+    }
+    const auto first = relative.begin();
+    return first != relative.end() && *first != "..";
+}
+
 } // namespace
 
 std::vector<carved_result> carve_file_map(
@@ -79,9 +91,18 @@ std::vector<carved_result> carve_file_map(
         return results;
     }
 
-    const std::filesystem::path root(output_directory);
     std::error_code error;
-    std::filesystem::create_directories(root, error);
+    const auto root = std::filesystem::absolute(output_directory, error).lexically_normal();
+    if(error) {
+        return results;
+    }
+    error.clear();
+    const auto source = std::filesystem::absolute(source_name, error).lexically_normal();
+    if(error) {
+        return results;
+    }
+    const auto target_directory = is_within(source, root) ? source.parent_path() : root;
+    std::filesystem::create_directories(target_directory, error);
     if(error) {
         return results;
     }
@@ -99,7 +120,7 @@ std::vector<carved_result> carve_file_map(
         if(signature.offset > last_known_offset) {
             results.push_back(carve_one(
                 data,
-                root,
+                target_directory,
                 source_name,
                 "unknown",
                 last_known_offset,
@@ -109,7 +130,7 @@ std::vector<carved_result> carve_file_map(
         }
         results.push_back(carve_one(
             data,
-            root,
+            target_directory,
             source_name,
             signature.name,
             signature.offset,
@@ -122,7 +143,7 @@ std::vector<carved_result> carve_file_map(
     if(last_known_offset < data.size()) {
         results.push_back(carve_one(
             data,
-            root,
+            target_directory,
             source_name,
             "unknown",
             last_known_offset,

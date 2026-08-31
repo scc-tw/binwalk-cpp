@@ -4,14 +4,21 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
+#include <deque>
+#include <filesystem>
 #include <fstream>
+#include <future>
 #include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <thread>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -94,8 +101,8 @@ using json = nlohmann::json;
     return {{"Entropy", {{"file", path}, {"blocks", std::move(json_blocks)}}}};
 }
 
-[[nodiscard]] bool write_json_log(const std::string& path, const json& value) {
-    const auto output = json::array({value}).dump(2);
+[[nodiscard]] bool write_json_log(const std::string& path, const json& values) {
+    const auto output = values.dump(2);
     if(path == "-") {
         std::cout << output << '\n';
         return true;
@@ -106,6 +113,125 @@ using json = nlohmann::json;
     }
     log << output << '\n';
     return static_cast<bool>(log);
+}
+
+[[nodiscard]] bool should_display(
+    const binwalk::analysis_results& analysis,
+    std::size_t file_count,
+    bool verbose
+) {
+    if(file_count == 1 || verbose || !analysis.extractions.empty()) {
+        return true;
+    }
+    return std::any_of(
+        analysis.file_map.begin(), analysis.file_map.end(), [](const auto& result) {
+            return result.always_display;
+        }
+    );
+}
+
+void print_analysis(const binwalk::analysis_results& analysis, bool quiet) {
+    if(quiet) {
+        return;
+    }
+    std::cout << "\n" << analysis.file_path << "\n"
+              << "DECIMAL       HEXADECIMAL     DESCRIPTION\n";
+    for(const auto& result : analysis.file_map) {
+        std::cout << std::left << std::setw(14) << result.offset
+                  << "0x" << std::hex << std::setw(14) << result.offset
+                  << std::dec << result.description << '\n';
+    }
+}
+
+[[nodiscard]] bool carve_analysis(
+    binwalk::byte_view data,
+    const binwalk::analysis_results& analysis,
+    const std::string& output_directory
+) {
+    const auto carved = binwalk::carve_file_map(
+        data, analysis.file_map, analysis.file_path, output_directory
+    );
+    return std::none_of(carved.begin(), carved.end(), [](const auto& result) {
+        return !result.success;
+    });
+}
+
+[[nodiscard]] std::vector<std::string> extracted_files(
+    const binwalk::analysis_results& analysis
+) {
+    std::vector<std::string> files;
+    for(const auto& [id, extraction] : analysis.extractions) {
+        (void)id;
+        if(!extraction.success || extraction.do_not_recurse || extraction.output_directory.empty()) {
+            continue;
+        }
+
+        std::error_code error;
+        const auto options = std::filesystem::directory_options::skip_permission_denied;
+        for(std::filesystem::recursive_directory_iterator iterator(
+                extraction.output_directory, options, error
+            ), end;
+            !error && iterator != end;
+            iterator.increment(error)) {
+            const auto status = iterator->symlink_status(error);
+            if(error || !std::filesystem::is_regular_file(status)) {
+                continue;
+            }
+            if(iterator->file_size(error) > 0 && !error) {
+                files.push_back(iterator->path().string());
+            }
+        }
+    }
+    std::sort(files.begin(), files.end());
+    return files;
+}
+
+[[nodiscard]] std::string path_key(const std::string& value) {
+    std::error_code error;
+    auto path = std::filesystem::weakly_canonical(value, error);
+    if(error) {
+        error.clear();
+        path = std::filesystem::absolute(value, error).lexically_normal();
+    }
+    auto key = path.generic_string();
+#if defined(_WIN32)
+    std::transform(key.begin(), key.end(), key.begin(), [](unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+    });
+#endif
+    return key;
+}
+
+struct worker_result {
+    bool success = false;
+    bool carve_success = true;
+    std::string error;
+    binwalk::analysis_results analysis;
+};
+
+[[nodiscard]] worker_result analyze_file(
+    const binwalk::scanner& scanner,
+    const std::string& path,
+    bool extract,
+    bool carve,
+    const std::string& output_directory
+) {
+    worker_result result;
+    const auto data = read_file(path);
+    if(!data) {
+        result.error = "Failed to read " + path;
+        return result;
+    }
+    result.analysis = scanner.analyze(
+        binwalk::byte_view(*data), path, extract, output_directory
+    );
+    if(carve) {
+        result.carve_success = carve_analysis(
+            binwalk::byte_view(*data), result.analysis, output_directory
+        );
+    }
+    result.success = true;
+    return result;
 }
 
 } // namespace
@@ -144,7 +270,8 @@ int main(int argc, char** argv) {
     auto* entropy_option = app.add_flag("-E,--entropy", entropy, "Generate an entropy graph");
     app.add_option("-p,--png", png, "Save entropy graph as a PNG file");
     app.add_option("-l,--log", log_path, "Log JSON results to a file ('-' for stdout)");
-    app.add_option("-t,--threads", threads, "Number of worker threads");
+    app.add_option("-t,--threads", threads, "Number of worker threads")
+        ->check(CLI::PositiveNumber);
     auto* exclude_option = app.add_option(
         "-x,--exclude", exclude, "Comma-separated signatures to exclude"
     );
@@ -177,11 +304,6 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    if(matryoshka) {
-        std::cerr << "This compatibility feature has not been ported yet.\n";
-        return 1;
-    }
-
     std::vector<std::uint8_t> data;
     std::string display_name = file_name;
     if(use_stdin) {
@@ -201,55 +323,100 @@ int main(int argc, char** argv) {
     }
 
     if(entropy) {
-        if(!png.empty()) {
-            std::cerr << "PNG entropy graph output has not been ported yet.\n";
+        const auto blocks = binwalk::entropy_blocks(binwalk::byte_view(data));
+        if(!png.empty() && !binwalk::write_entropy_png(blocks, png)) {
+            std::cerr << "Failed to write entropy graph to " << png << "\n";
             return 1;
         }
-        const auto blocks = binwalk::entropy_blocks(binwalk::byte_view(data));
         if(!quiet) {
             std::cout << "Calculated entropy for " << blocks.size() << " blocks.\n";
         }
-        if(!log_path.empty() && !write_json_log(log_path, entropy_to_json(display_name, blocks))) {
+        json values = json::array();
+        values.push_back(entropy_to_json(display_name, blocks));
+        if(!log_path.empty() && !write_json_log(log_path, values)) {
             std::cerr << "Failed to write JSON log file " << log_path << "\n";
             return 1;
         }
         return 0;
     }
 
-    const auto analysis = scanner.analyze(
+    auto analysis = scanner.analyze(
         binwalk::byte_view(data), display_name, extract, directory
     );
-    const auto& results = analysis.file_map;
-    if(!quiet) {
-        std::cout << "DECIMAL       HEXADECIMAL     DESCRIPTION\n";
-        for(const auto& result : results) {
-            std::cout << std::left << std::setw(14) << result.offset
-                      << "0x" << std::hex << std::setw(14) << result.offset
-                      << std::dec << result.description << '\n';
-        }
+    std::vector<binwalk::analysis_results> analyses;
+    analyses.push_back(analysis);
+    std::size_t file_count = 1;
+    print_analysis(analysis, quiet);
+
+    if(carve && !carve_analysis(binwalk::byte_view(data), analysis, directory)) {
+        std::cerr << "One or more data blocks could not be carved.\n";
+        return 1;
     }
 
-    if(carve) {
-        const auto carved = binwalk::carve_file_map(
-            binwalk::byte_view(data), results, display_name, directory
-        );
-        if(std::any_of(carved.begin(), carved.end(), [](const auto& result) {
-            return !result.success;
-        })) {
-            std::cerr << "One or more data blocks could not be carved.\n";
-            return 1;
+    std::deque<std::string> pending;
+    std::unordered_set<std::string> seen;
+    if(!use_stdin) {
+        seen.insert(path_key(file_name));
+    }
+    const auto enqueue_extractions = [&](const binwalk::analysis_results& completed) {
+        if(!matryoshka) {
+            return;
+        }
+        for(auto& path : extracted_files(completed)) {
+            if(seen.insert(path_key(path)).second) {
+                pending.push_back(std::move(path));
+            }
+        }
+    };
+    enqueue_extractions(analysis);
+
+    const auto worker_count = threads > 0
+        ? threads
+        : std::max<std::size_t>(1, std::thread::hardware_concurrency());
+    while(!pending.empty()) {
+        const auto batch_size = std::min(worker_count, pending.size());
+        std::vector<std::future<worker_result>> workers;
+        workers.reserve(batch_size);
+        for(std::size_t index = 0; index < batch_size; ++index) {
+            auto path = std::move(pending.front());
+            pending.pop_front();
+            workers.push_back(std::async(
+                std::launch::async,
+                [scanner, path = std::move(path), extract, carve, directory] {
+                    return analyze_file(scanner, path, extract, carve, directory);
+                }
+            ));
+        }
+
+        for(auto& worker : workers) {
+            auto completed = worker.get();
+            if(!completed.success) {
+                std::cerr << completed.error << '\n';
+                continue;
+            }
+            ++file_count;
+            if(!completed.carve_success) {
+                std::cerr << "One or more data blocks could not be carved from "
+                          << completed.analysis.file_path << ".\n";
+            }
+            if(should_display(completed.analysis, file_count, verbose)) {
+                print_analysis(completed.analysis, quiet);
+            }
+            enqueue_extractions(completed.analysis);
+            analyses.push_back(std::move(completed.analysis));
         }
     }
 
     if(!log_path.empty()) {
-        if(!write_json_log(log_path, to_json(analysis))) {
+        json values = json::array();
+        for(const auto& completed : analyses) {
+            values.push_back(to_json(completed));
+        }
+        if(!write_json_log(log_path, values)) {
             std::cerr << "Failed to write JSON log file " << log_path << "\n";
             return 1;
         }
     }
 
-    (void)verbose;
-    (void)threads;
-    (void)directory;
     return 0;
 }
