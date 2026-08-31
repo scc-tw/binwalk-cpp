@@ -1,0 +1,13 @@
+@PACKAGE_INIT@
+
+if(@BINWALK_WITH_ZLIB@)
+    include(CMakeFindDependencyMacro)
+    if(@BINWALK_ZLIB_USE_CONFIG_PACKAGE@)
+        find_dependency(ZLIB CONFIG COMPONENTS static)
+    else()
+        find_dependency(ZLIB)
+    endif()
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/binwalkTargets.cmake")
+check_required_components(binwalk)
