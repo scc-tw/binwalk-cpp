@@ -15,7 +15,6 @@
 #if defined(BINWALK_HAS_ZLIB)
 #    include <zlib.h>
 #endif
-
 namespace binwalk::detail {
 namespace {
 
@@ -28,7 +27,7 @@ namespace {
     if(offset > data.size() || size > data.size() - offset) {
         return false;
     }
-    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    std::ofstream output(native_long_path(path), std::ios::binary | std::ios::trunc);
     if(!output) {
         return false;
     }
@@ -48,20 +47,37 @@ namespace {
     return static_cast<bool>(output);
 }
 
+[[nodiscard]] bool range_in_bounds(byte_view data, std::uint64_t offset, std::uint64_t size) {
+    return offset <= data.size() && size <= data.size() - offset;
+}
+
 [[nodiscard]] extraction_result carve_single(
     byte_view data,
     const signature_result& signature,
-    const std::string& output_directory,
+    const std::string* output_directory,
     const std::string& file_name
 ) {
     extraction_result result;
+
+    if(!range_in_bounds(data, signature.offset, signature.size) || signature.size == 0) {
+        result.failure = extraction_failure::invalid_data;
+        return result;
+    }
     result.size = signature.size;
+    if(output_directory == nullptr) {
+        result.success = true;
+        return result;
+    }
+
     result.success = write_range(
         data,
         signature.offset,
         signature.size,
-        std::filesystem::path(output_directory) / file_name
+        std::filesystem::path(*output_directory) / file_name
     );
+    if(!result.success) {
+        result.failure = extraction_failure::write_error;
+    }
     return result;
 }
 
@@ -70,6 +86,8 @@ struct raw_inflate_result {
     bool success = false;
     std::size_t input_size = 0;
     std::uint32_t adler32 = 1;
+
+    bool write_failed = false;
 };
 
 [[nodiscard]] raw_inflate_result inflate_raw(
@@ -84,8 +102,9 @@ struct raw_inflate_result {
 
     std::ofstream output;
     if(output_path != nullptr) {
-        output.open(*output_path, std::ios::binary | std::ios::trunc);
+        output.open(native_long_path(*output_path), std::ios::binary | std::ios::trunc);
         if(!output) {
+            result.write_failed = true;
             return result;
         }
     }
@@ -134,6 +153,7 @@ struct raw_inflate_result {
                 static_cast<std::streamsize>(produced)
             );
             if(!output) {
+                result.write_failed = true;
                 inflateEnd(&stream);
                 return result;
             }
@@ -189,7 +209,8 @@ struct raw_inflate_result {
 [[nodiscard]] std::optional<gzip_info> parse_and_inflate_gzip(
     byte_view data,
     std::size_t offset,
-    const std::filesystem::path* output_path
+    const std::filesystem::path* output_path,
+    bool* write_failed = nullptr
 ) {
     constexpr std::uint8_t flag_crc = 0x02;
     constexpr std::uint8_t flag_extra = 0x04;
@@ -251,6 +272,9 @@ struct raw_inflate_result {
 
     const auto inflated = inflate_raw(data, cursor, output_path);
     if(!inflated.success) {
+        if(write_failed != nullptr) {
+            *write_failed = inflated.write_failed;
+        }
         return std::nullopt;
     }
     return gzip_info{
@@ -284,7 +308,7 @@ struct raw_inflate_result {
     }
 }
 
-} // namespace
+}
 
 std::optional<gzip_info> inspect_gzip(byte_view data, std::size_t offset) {
 #if defined(BINWALK_HAS_ZLIB)
@@ -327,7 +351,7 @@ std::optional<zlib_info> inspect_zlib(byte_view data, std::size_t offset) {
 extraction_result extract_bmp(
     byte_view data,
     const signature_result& signature,
-    const std::string& output_directory
+    const std::string* output_directory
 ) {
     return carve_single(data, signature, output_directory, "image.bmp");
 }
@@ -335,7 +359,7 @@ extraction_result extract_bmp(
 extraction_result extract_jpeg(
     byte_view data,
     const signature_result& signature,
-    const std::string& output_directory
+    const std::string* output_directory
 ) {
     return carve_single(data, signature, output_directory, "image.jpg");
 }
@@ -343,22 +367,34 @@ extraction_result extract_jpeg(
 extraction_result extract_gzip(
     byte_view data,
     const signature_result& signature,
-    const std::string& output_directory
+    const std::string* output_directory
 ) {
     extraction_result result;
 #if defined(BINWALK_HAS_ZLIB)
-    const auto output_path = std::filesystem::path(output_directory) / "decompressed.bin";
+    std::filesystem::path output_path;
+    const std::filesystem::path* target = nullptr;
+    if(output_directory != nullptr) {
+        output_path = std::filesystem::path(*output_directory) / "decompressed.bin";
+        target = &output_path;
+    }
+    bool write_failed = false;
     const auto info = parse_and_inflate_gzip(
-        data, static_cast<std::size_t>(signature.offset), &output_path
+        data, static_cast<std::size_t>(signature.offset), target, &write_failed
     );
     if(info) {
         result.size = info->deflate_size;
         result.success = true;
+    } else {
+
+        result.failure = write_failed
+            ? extraction_failure::write_error
+            : extraction_failure::invalid_data;
     }
 #else
     (void)data;
     (void)signature;
     (void)output_directory;
+    result.failure = extraction_failure::unsupported;
 #endif
     return result;
 }
@@ -366,7 +402,7 @@ extraction_result extract_gzip(
 extraction_result extract_png(
     byte_view data,
     const signature_result& signature,
-    const std::string& output_directory
+    const std::string* output_directory
 ) {
     return carve_single(data, signature, output_directory, "image.png");
 }
@@ -374,7 +410,7 @@ extraction_result extract_png(
 extraction_result extract_riff(
     byte_view data,
     const signature_result& signature,
-    const std::string& output_directory
+    const std::string* output_directory
 ) {
     std::string output_name = "image.riff";
     if(data.contains(static_cast<std::size_t>(signature.offset) + 8, 4)
@@ -390,18 +426,27 @@ extraction_result extract_riff(
 extraction_result extract_zlib(
     byte_view data,
     const signature_result& signature,
-    const std::string& output_directory
+    const std::string* output_directory
 ) {
     extraction_result result;
 #if defined(BINWALK_HAS_ZLIB)
     constexpr std::size_t header_size = 2;
-    const auto output_path = std::filesystem::path(output_directory) / "decompressed.bin";
+    std::filesystem::path output_path;
+    const std::filesystem::path* target = nullptr;
+    if(output_directory != nullptr) {
+        output_path = std::filesystem::path(*output_directory) / "decompressed.bin";
+        target = &output_path;
+    }
     const auto inflated = inflate_raw(
         data,
         static_cast<std::size_t>(signature.offset) + header_size,
-        &output_path
+        target
     );
     if(!inflated.success) {
+
+        result.failure = inflated.write_failed
+            ? extraction_failure::write_error
+            : extraction_failure::invalid_data;
         return result;
     }
     const auto checksum_offset = static_cast<std::size_t>(signature.offset)
@@ -411,11 +456,14 @@ extraction_result extract_zlib(
     if(reported_checksum && *reported_checksum == inflated.adler32) {
         result.success = true;
         result.size = header_size + inflated.input_size + 4U;
+    } else {
+        result.failure = extraction_failure::invalid_data;
     }
 #else
     (void)data;
     (void)signature;
     (void)output_directory;
+    result.failure = extraction_failure::unsupported;
 #endif
     return result;
 }
@@ -423,7 +471,7 @@ extraction_result extract_zlib(
 extraction_result extract_mbr(
     byte_view data,
     const signature_result& signature,
-    const std::string& output_directory
+    const std::string* output_directory
 ) {
     constexpr std::size_t block_size = 512;
     constexpr std::size_t partition_table_offset = 446;
@@ -431,13 +479,22 @@ extraction_result extract_mbr(
     constexpr std::size_t partition_count = 4;
 
     extraction_result result;
-    result.size = signature.size;
-    if(!data.contains(static_cast<std::size_t>(signature.offset), block_size)) {
+
+    if(!data.contains(static_cast<std::size_t>(signature.offset), block_size)
+        || !range_in_bounds(data, signature.offset, signature.size)) {
+        result.failure = extraction_failure::invalid_data;
         return result;
     }
 
+    struct partition_entry {
+        std::uint64_t start = 0;
+        std::uint64_t size = 0;
+        std::uint8_t type = 0;
+    };
+    std::array<partition_entry, partition_count> partitions{};
+    std::size_t partition_total = 0;
+
     binary_reader<byte_order::little> reader(data);
-    std::size_t extracted_count = 0;
     for(std::size_t index = 0; index < partition_count; ++index) {
         const auto entry = static_cast<std::size_t>(signature.offset)
             + partition_table_offset + index * partition_entry_size;
@@ -454,17 +511,37 @@ extraction_result extract_mbr(
         if(start == 0 || start > data.size() || size > data.size() - start) {
             continue;
         }
-        const auto output_name = mbr_partition_name(type) + "_partition."
-            + std::to_string(extracted_count);
+        partitions[partition_total] = partition_entry{start, size, type};
+        ++partition_total;
+    }
+
+    if(partition_total == 0) {
+        result.failure = extraction_failure::invalid_data;
+        return result;
+    }
+
+    result.size = signature.size;
+    result.success = true;
+    if(output_directory == nullptr) {
+        return result;
+    }
+
+    for(std::size_t index = 0; index < partition_total; ++index) {
+        const auto& partition = partitions[index];
+        const auto output_name = mbr_partition_name(partition.type) + "_partition."
+            + std::to_string(index);
         if(!write_range(
-            data, start, size, std::filesystem::path(output_directory) / output_name
+            data,
+            partition.start,
+            partition.size,
+            std::filesystem::path(*output_directory) / output_name
         )) {
+            result.success = false;
+            result.failure = extraction_failure::write_error;
             return result;
         }
-        ++extracted_count;
     }
-    result.success = extracted_count > 0;
     return result;
 }
 
-} // namespace binwalk::detail
+}

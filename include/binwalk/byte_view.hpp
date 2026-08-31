@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <vector>
-
 namespace binwalk {
 
 class byte_view {
@@ -37,4 +36,4 @@ private:
     std::size_t size_ = 0;
 };
 
-} // namespace binwalk
+}

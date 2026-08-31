@@ -1,0 +1,20 @@
+[
+{
+  "Analysis": {
+    "file_path": "C:\\Users\\oscar.yang_cycraft\\git\\binwalk-cpp\\tests\\fixtures\\linux_arm64_boot_image.bin",
+    "file_map": [
+      {
+        "offset": 128,
+        "id": "f44b9961-74ce-4d02-9437-2b204944027b",
+        "size": 64,
+        "name": "linux_arm64_boot_image",
+        "confidence": 128,
+        "description": "Linux kernel ARM64 boot image, little endian, effective image size: 16777216 bytes",
+        "always_display": false,
+        "extraction_declined": false
+      }
+    ],
+    "extractions": {}
+  }
+}
+]

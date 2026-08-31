@@ -11,7 +11,6 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
-
 namespace binwalk {
 
 using signature_parser = std::optional<signature_result> (*)(byte_view, std::size_t);
@@ -109,4 +108,4 @@ template<typename... Formats>
     return signatures;
 }
 
-} // namespace binwalk
+}

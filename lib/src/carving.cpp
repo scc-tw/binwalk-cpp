@@ -8,7 +8,6 @@
 #include <system_error>
 #include <utility>
 #include <vector>
-
 namespace binwalk {
 namespace {
 
@@ -78,7 +77,7 @@ namespace {
     return first != relative.end() && *first != "..";
 }
 
-} // namespace
+}
 
 std::vector<carved_result> carve_file_map(
     byte_view data,
@@ -154,4 +153,4 @@ std::vector<carved_result> carve_file_map(
     return results;
 }
 
-} // namespace binwalk
+}

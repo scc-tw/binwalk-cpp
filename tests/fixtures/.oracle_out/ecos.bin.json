@@ -1,0 +1,20 @@
+[
+{
+  "Analysis": {
+    "file_path": "C:\\Users\\oscar.yang_cycraft\\git\\binwalk-cpp\\tests\\fixtures\\ecos.bin",
+    "file_map": [
+      {
+        "offset": 32,
+        "id": "71f73722-690d-4477-b438-5ac0cd1a3e0e",
+        "size": 76,
+        "name": "ecos",
+        "confidence": 0,
+        "description": "eCos kernel exception handler, MIPS little endian",
+        "always_display": true,
+        "extraction_declined": false
+      }
+    ],
+    "extractions": {}
+  }
+}
+]

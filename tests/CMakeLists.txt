@@ -1,10 +1,18 @@
-add_executable(
-    binwalk_tests
-    unit/binary_reader_test.cpp
-    unit/carving_test.cpp
-    unit/entropy_test.cpp
-    unit/scanner_test.cpp
+# Globbed on purpose. Roughly a dozen independent black-box test agents across
+# three coordinators drop files into unit/, and an explicit list would make this
+# manifest a three-way write conflict. CONFIGURE_DEPENDS re-globs on build, so a
+# new test file is picked up without a manual reconfigure.
+file(
+    GLOB BINWALK_UNIT_TEST_SOURCES
+    CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/unit/*_test.cpp"
 )
+
+if(NOT BINWALK_UNIT_TEST_SOURCES)
+    message(FATAL_ERROR "No unit test sources found under tests/unit")
+endif()
+
+add_executable(binwalk_tests ${BINWALK_UNIT_TEST_SOURCES})
 
 target_compile_features(binwalk_tests PRIVATE cxx_std_17)
 target_link_libraries(binwalk_tests PRIVATE binwalk::core GTest::gtest_main)

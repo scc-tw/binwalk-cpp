@@ -1,0 +1,20 @@
+[
+{
+  "Analysis": {
+    "file_path": "C:\\Users\\oscar.yang_cycraft\\git\\binwalk-cpp\\tests\\fixtures\\linux_kernel_symtab.bin",
+    "file_map": [
+      {
+        "offset": 0,
+        "id": "caf8295e-b9fd-4844-b3e0-203cdb7973e5",
+        "size": 124253,
+        "name": "linux_kernel",
+        "confidence": 0,
+        "description": "Linux version 4.9.241 (root@server2) (gcc version 10.0.1 (OpenWrt GCC 10.0.1 r12423-0493d57e04) ) #755 SMP Wed Nov 4 03:59:02 +03 2020, has symbol table: true",
+        "always_display": true,
+        "extraction_declined": false
+      }
+    ],
+    "extractions": {}
+  }
+}
+]

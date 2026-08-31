@@ -1,0 +1,23 @@
+{
+  "file_name": "zip.bin",
+  "file_map": [
+    {
+      "offset": 0,
+      "size": 605739,
+      "name": "zip",
+      "confidence": 250,
+      "confidence_tier": "high",
+      "description": "ZIP archive, version: 2.0, file count: 1, total size: 605739 bytes",
+      "always_display": false,
+      "extraction_declined": false
+    }
+  ],
+  "extractions": {
+    "offset:0": {
+      "size": null,
+      "success": false,
+      "extractor": "7zz",
+      "do_not_recurse": false
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "file_name": "yaffs2.bin",
+  "file_map": [
+    {
+      "offset": 0,
+      "size": 126720,
+      "name": "yaffs",
+      "confidence": 128,
+      "confidence_tier": "medium",
+      "description": "YAFFSv2 filesystem, little endian, page size: 2048, spare size: 64, image size: 126720 bytes",
+      "always_display": false,
+      "extraction_declined": false
+    }
+  ],
+  "extractions": {
+    "offset:0": {
+      "size": null,
+      "success": false,
+      "extractor": "",
+      "do_not_recurse": false
+    }
+  }
+}

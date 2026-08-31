@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-
 namespace binwalk {
 
 struct entropy_block {
@@ -28,4 +27,4 @@ struct entropy_block {
     std::uint32_t height = 1024
 );
 
-} // namespace binwalk
+}

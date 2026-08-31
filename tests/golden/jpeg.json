@@ -1,0 +1,39 @@
+{
+  "file_name": "jpeg.bin",
+  "file_map": [
+    {
+      "offset": 0,
+      "size": 89022,
+      "name": "jpeg",
+      "confidence": 128,
+      "confidence_tier": "medium",
+      "description": "JPEG image, total size: 89022 bytes",
+      "always_display": false,
+      "extraction_declined": false
+    },
+    {
+      "offset": 89022,
+      "size": 14573,
+      "name": "jpeg",
+      "confidence": 128,
+      "confidence_tier": "medium",
+      "description": "JPEG image, total size: 14573 bytes",
+      "always_display": false,
+      "extraction_declined": false
+    }
+  ],
+  "extractions": {
+    "offset:0": {
+      "size": 89022,
+      "success": true,
+      "extractor": "jpeg_built_in",
+      "do_not_recurse": true
+    },
+    "offset:89022": {
+      "size": 14573,
+      "success": true,
+      "extractor": "jpeg_built_in",
+      "do_not_recurse": true
+    }
+  }
+}

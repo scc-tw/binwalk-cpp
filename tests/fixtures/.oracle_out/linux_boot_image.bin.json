@@ -1,0 +1,20 @@
+[
+{
+  "Analysis": {
+    "file_path": "C:\\Users\\oscar.yang_cycraft\\git\\binwalk-cpp\\tests\\fixtures\\linux_boot_image.bin",
+    "file_map": [
+      {
+        "offset": 64,
+        "id": "36e9a6c1-28bd-4701-af0c-5ca2ac6c2025",
+        "size": 583,
+        "name": "linux_boot_image",
+        "confidence": 0,
+        "description": "Linux kernel boot image",
+        "always_display": false,
+        "extraction_declined": false
+      }
+    ],
+    "extractions": {}
+  }
+}
+]

@@ -1,0 +1,23 @@
+{
+  "file_name": "cramfs.bin",
+  "file_map": [
+    {
+      "offset": 0,
+      "size": 4096,
+      "name": "cramfs",
+      "confidence": 250,
+      "confidence_tier": "high",
+      "description": "CramFS filesystem, little endian, 2 files, total size: 4096 bytes",
+      "always_display": false,
+      "extraction_declined": false
+    }
+  ],
+  "extractions": {
+    "offset:0": {
+      "size": null,
+      "success": false,
+      "extractor": "7zz",
+      "do_not_recurse": false
+    }
+  }
+}

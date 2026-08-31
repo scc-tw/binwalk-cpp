@@ -6,7 +6,6 @@
 #include <cstdint>
 #include <optional>
 #include <type_traits>
-
 namespace binwalk {
 
 enum class byte_order { little, big };
@@ -50,4 +49,4 @@ private:
     byte_view data_;
 };
 
-} // namespace binwalk
+}

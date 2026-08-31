@@ -1,0 +1,20 @@
+[
+{
+  "Analysis": {
+    "file_path": "C:\\Users\\oscar.yang_cycraft\\git\\binwalk-cpp\\tests\\fixtures\\vxworks_symtab_le.bin",
+    "file_map": [
+      {
+        "offset": 16,
+        "id": "554eb3c4-caa9-40bc-a9a2-04398fb860ed",
+        "size": 4000,
+        "name": "vxworks_symtab",
+        "confidence": 250,
+        "description": "VxWorks symbol table, total size: 4000 bytes",
+        "always_display": true,
+        "extraction_declined": false
+      }
+    ],
+    "extractions": {}
+  }
+}
+]

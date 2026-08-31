@@ -1,0 +1,23 @@
+{
+  "file_name": "gzip.bin",
+  "file_map": [
+    {
+      "offset": 0,
+      "size": 109,
+      "name": "gzip",
+      "confidence": 250,
+      "confidence_tier": "high",
+      "description": "gzip compressed data, original file name: \"lsb-release\", operating system: Unix, timestamp: 2024-11-01 15:31:16, total size: 109 bytes",
+      "always_display": false,
+      "extraction_declined": false
+    }
+  ],
+  "extractions": {
+    "offset:0": {
+      "size": 79,
+      "success": true,
+      "extractor": "gzip_built_in",
+      "do_not_recurse": false
+    }
+  }
+}

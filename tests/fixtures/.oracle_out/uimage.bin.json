@@ -1,0 +1,20 @@
+[
+{
+  "Analysis": {
+    "file_path": "C:\\Users\\oscar.yang_cycraft\\git\\binwalk-cpp\\tests\\fixtures\\uimage.bin",
+    "file_map": [
+      {
+        "offset": 0,
+        "id": "a1ae6f02-925f-48f4-8e52-5d8b10b12c1c",
+        "size": 320,
+        "name": "uimage",
+        "confidence": 250,
+        "description": "uImage firmware image, header size: 64 bytes, data size: 256 bytes, compression: gzip, CPU: MIPS32, OS: Linux, image type: OS Kernel Image, load address: 0x80000000, entry point: 0x80000000, creation time: 2023-11-14 22:13:20, image name: \"MIPS OpenWrt Linux-5.10\"",
+        "always_display": false,
+        "extraction_declined": false
+      }
+    ],
+    "extractions": {}
+  }
+}
+]

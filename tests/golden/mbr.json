@@ -1,0 +1,23 @@
+{
+  "file_name": "mbr.bin",
+  "file_map": [
+    {
+      "offset": 0,
+      "size": 5120,
+      "name": "mbr",
+      "confidence": 128,
+      "confidence_tier": "medium",
+      "description": "DOS Master Boot Record, partition: Linux, image size: 5120 bytes",
+      "always_display": true,
+      "extraction_declined": false
+    }
+  ],
+  "extractions": {
+    "offset:0": {
+      "size": 5120,
+      "success": true,
+      "extractor": "mbr_built_in",
+      "do_not_recurse": false
+    }
+  }
+}

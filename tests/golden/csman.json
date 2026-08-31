@@ -1,0 +1,23 @@
+{
+  "file_name": "csman.bin",
+  "file_map": [
+    {
+      "offset": 0,
+      "size": 36,
+      "name": "csman",
+      "confidence": 250,
+      "confidence_tier": "high",
+      "description": "CSman DAT file, total size: 36 bytes",
+      "always_display": false,
+      "extraction_declined": false
+    }
+  ],
+  "extractions": {
+    "offset:0": {
+      "size": 36,
+      "success": true,
+      "extractor": "csman_built_in",
+      "do_not_recurse": false
+    }
+  }
+}

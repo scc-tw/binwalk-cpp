@@ -1,0 +1,39 @@
+{
+  "file_name": "bmp.bin",
+  "file_map": [
+    {
+      "offset": 753556,
+      "size": 270056,
+      "name": "bmp",
+      "confidence": 128,
+      "confidence_tier": "medium",
+      "description": "BMP image, total size: 270056",
+      "always_display": false,
+      "extraction_declined": false
+    },
+    {
+      "offset": 1093612,
+      "size": 33236,
+      "name": "bmp",
+      "confidence": 128,
+      "confidence_tier": "medium",
+      "description": "BMP image, total size: 33236",
+      "always_display": false,
+      "extraction_declined": false
+    }
+  ],
+  "extractions": {
+    "offset:1093612": {
+      "size": 33236,
+      "success": true,
+      "extractor": "bmp_built_in",
+      "do_not_recurse": true
+    },
+    "offset:753556": {
+      "size": 270056,
+      "success": true,
+      "extractor": "bmp_built_in",
+      "do_not_recurse": true
+    }
+  }
+}

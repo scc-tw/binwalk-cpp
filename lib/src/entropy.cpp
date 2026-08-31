@@ -13,7 +13,6 @@
 #if defined(BINWALK_HAS_ZLIB)
 #    include <zlib.h>
 #endif
-
 namespace binwalk {
 namespace {
 
@@ -88,7 +87,7 @@ struct rgb_image {
     std::vector<std::uint8_t> pixels;
 };
 
-} // namespace
+}
 
 std::vector<entropy_block> entropy_blocks(byte_view data, std::size_t target_block_count) {
     std::vector<entropy_block> result;
@@ -236,4 +235,4 @@ bool write_entropy_png(
 #endif
 }
 
-} // namespace binwalk
+}

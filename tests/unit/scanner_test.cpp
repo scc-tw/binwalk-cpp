@@ -7,7 +7,6 @@
 #include <string>
 #include <system_error>
 #include <vector>
-
 namespace {
 
 std::vector<std::uint8_t> minimal_png() {
@@ -42,7 +41,7 @@ void write_u32_le(std::vector<std::uint8_t>& data, std::size_t offset, std::uint
     }
 }
 
-} // namespace
+}
 
 TEST(Scanner, FindsAndValidatesPng) {
     const auto data = minimal_png();

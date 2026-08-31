@@ -9,7 +9,6 @@
 #include <string>
 #include <system_error>
 #include <vector>
-
 namespace {
 
 std::vector<std::uint8_t> inner_gzip() {
@@ -52,7 +51,7 @@ std::string quote(const std::filesystem::path& path) {
     return "\"" + path.string() + "\"";
 }
 
-} // namespace
+}
 
 TEST(Cli, RecursivelyExtractsWithABoundedWorkerPool) {
     const auto root = std::filesystem::temp_directory_path()

@@ -1,0 +1,16 @@
+{
+  "file_name": "pdf.bin",
+  "file_map": [
+    {
+      "offset": 0,
+      "size": 245715,
+      "name": "pdf",
+      "confidence": 0,
+      "confidence_tier": "low",
+      "description": "PDF document, version 1.4",
+      "always_display": false,
+      "extraction_declined": false
+    }
+  ],
+  "extractions": {}
+}

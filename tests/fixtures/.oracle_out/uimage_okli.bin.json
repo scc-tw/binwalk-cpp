@@ -1,0 +1,20 @@
+[
+{
+  "Analysis": {
+    "file_path": "C:\\Users\\oscar.yang_cycraft\\git\\binwalk-cpp\\tests\\fixtures\\uimage_okli.bin",
+    "file_map": [
+      {
+        "offset": 0,
+        "id": "3ecaa0a3-8ae9-4827-ae5e-6583f9b64065",
+        "size": 320,
+        "name": "uimage",
+        "confidence": 250,
+        "description": "uImage firmware image, header size: 64 bytes, data size: 256 bytes, compression: gzip, CPU: MIPS32, OS: Linux, image type: OS Kernel Image, load address: 0x80000000, entry point: 0x80000000, creation time: 2023-11-14 22:13:20, image name: \"OKLI kernel\"",
+        "always_display": false,
+        "extraction_declined": false
+      }
+    ],
+    "extractions": {}
+  }
+}
+]

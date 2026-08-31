@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-
 namespace binwalk {
 
 struct carved_result {
@@ -25,4 +24,4 @@ struct carved_result {
     const std::string& output_directory
 );
 
-} // namespace binwalk
+}

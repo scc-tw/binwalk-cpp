@@ -1,0 +1,20 @@
+[
+{
+  "Analysis": {
+    "file_path": "C:\\Users\\oscar.yang_cycraft\\git\\binwalk-cpp\\tests\\fixtures\\wind_kernel.bin",
+    "file_map": [
+      {
+        "offset": 32,
+        "id": "6412cf3e-9d81-44ab-a48a-17b321da978f",
+        "size": 17,
+        "name": "wind_kernel",
+        "confidence": 0,
+        "description": "VxWorks WIND kernel version 2.11",
+        "always_display": true,
+        "extraction_declined": false
+      }
+    ],
+    "extractions": {}
+  }
+}
+]

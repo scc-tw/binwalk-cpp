@@ -1,0 +1,40 @@
+[
+{
+  "Analysis": {
+    "file_path": "C:\\Users\\oscar.yang_cycraft\\git\\binwalk-cpp\\tests\\fixtures\\elf.bin",
+    "file_map": [
+      {
+        "offset": 0,
+        "id": "d20cba3c-7305-4ef7-b311-f6acadf9043f",
+        "size": 256,
+        "name": "elf",
+        "confidence": 128,
+        "description": "ELF binary, 32-bit executable, ARM for System-V (Unix), little endian",
+        "always_display": false,
+        "extraction_declined": false
+      }
+    ],
+    "extractions": {}
+  }
+}
+]
+[
+{
+  "Analysis": {
+    "file_path": "C:\\Users\\oscar.yang_cycraft\\git\\binwalk-cpp\\tests\\fixtures\\elf.bin",
+    "file_map": [
+      {
+        "offset": 0,
+        "id": "9b6b6c1f-f234-4560-a071-ad99192efceb",
+        "size": 256,
+        "name": "elf",
+        "confidence": 128,
+        "description": "ELF binary, 32-bit executable, ARM for System-V (Unix), little endian",
+        "always_display": false,
+        "extraction_declined": false
+      }
+    ],
+    "extractions": {}
+  }
+}
+]

@@ -10,7 +10,6 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-
 namespace binwalk {
 
 struct scan_options {
@@ -50,4 +49,4 @@ private:
     implementation* implementation_ = nullptr;
 };
 
-} // namespace binwalk
+}

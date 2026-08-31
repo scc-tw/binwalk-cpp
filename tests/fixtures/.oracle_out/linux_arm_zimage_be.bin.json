@@ -1,0 +1,20 @@
+[
+{
+  "Analysis": {
+    "file_path": "C:\\Users\\oscar.yang_cycraft\\git\\binwalk-cpp\\tests\\fixtures\\linux_arm_zimage_be.bin",
+    "file_map": [
+      {
+        "offset": 64,
+        "id": "e1162631-5c24-45ab-a692-5e2f1185d0d4",
+        "size": 168,
+        "name": "linux_arm_zimage",
+        "confidence": 128,
+        "description": "Linux ARM boot executable zImage, big endian",
+        "always_display": false,
+        "extraction_declined": false
+      }
+    ],
+    "extractions": {}
+  }
+}
+]

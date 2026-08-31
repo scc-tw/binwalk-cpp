@@ -15,7 +15,6 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
-
 namespace binwalk {
 namespace {
 
@@ -100,6 +99,10 @@ private:
     std::vector<node> nodes_;
 };
 
+[[nodiscard]] bool result_within(const signature_result& result, byte_view data) noexcept {
+    return result.offset <= data.size() && result.size <= data.size() - result.offset;
+}
+
 [[nodiscard]] bool matches_at(
     byte_view data,
     std::size_t offset,
@@ -136,12 +139,29 @@ private:
     return output.str();
 }
 
+[[nodiscard]] std::string ascii_lowercase(std::string value) {
+    for(auto& character : value) {
+        const auto byte = static_cast<unsigned char>(character);
+        if(byte >= 'A' && byte <= 'Z') {
+            character = static_cast<char>(byte - 'A' + 'a');
+        }
+    }
+    return value;
+}
+
+[[nodiscard]] bool name_listed(const std::vector<std::string>& names, const std::string& name) {
+    const auto lowered = ascii_lowercase(name);
+    return std::any_of(names.begin(), names.end(), [&lowered](const std::string& candidate) {
+        return ascii_lowercase(candidate) == lowered;
+    });
+}
+
 [[nodiscard]] bool selected(const signature& value, const scan_options& options) {
-    const auto included = options.include.empty()
-        || std::find(options.include.begin(), options.include.end(), value.name) != options.include.end();
-    const auto excluded = std::find(options.exclude.begin(), options.exclude.end(), value.name)
-        != options.exclude.end();
-    return included && !excluded;
+
+    if(!options.include.empty()) {
+        return name_listed(options.include, value.name);
+    }
+    return !name_listed(options.exclude, value.name);
 }
 
 void populate(signature_result& result, const signature& definition) {
@@ -153,7 +173,7 @@ void populate(signature_result& result, const signature& definition) {
     }
 }
 
-} // namespace
+}
 
 struct scanner::implementation {
     explicit implementation(std::vector<signature> definitions, scan_options scan_options_value)
@@ -166,6 +186,8 @@ struct scanner::implementation {
 
         for(std::size_t signature_index = 0; signature_index < signatures.size(); ++signature_index) {
             const auto& definition = signatures[signature_index];
+
+            pattern_total += definition.magic.size();
             if(definition.short_signature && !options.search_all) {
                 short_signature_indices.push_back(signature_index);
                 continue;
@@ -194,6 +216,8 @@ struct scanner::implementation {
     std::atomic<std::size_t> references{1};
     scan_options options;
     std::vector<signature> signatures;
+
+    std::size_t pattern_total = 0;
     std::vector<std::size_t> short_signature_indices;
     std::vector<std::vector<std::uint8_t>> patterns;
     std::vector<pattern_owner> pattern_owners;
@@ -232,12 +256,22 @@ std::vector<signature_result> scanner::scan(byte_view data) const {
         const auto& definition = implementation_->signatures[signature_index];
         for(const auto& pattern : definition.magic) {
             const auto magic_offset = definition.magic_offset;
-            if(matches_at(data, magic_offset, pattern) && definition.parser != nullptr) {
-                if(auto result = definition.parser(data, magic_offset)) {
-                    populate(*result, definition);
-                    results.push_back(std::move(*result));
-                    break;
+
+            if(pattern.empty() || magic_offset > data.size()
+                || pattern.size() >= data.size() - magic_offset) {
+                continue;
+            }
+            if(!matches_at(data, magic_offset, pattern) || definition.parser == nullptr) {
+                continue;
+            }
+            if(auto result = definition.parser(data, magic_offset)) {
+
+                if(!result_within(*result, data)) {
+                    continue;
                 }
+                populate(*result, definition);
+                results.push_back(std::move(*result));
+                break;
             }
         }
     }
@@ -260,7 +294,7 @@ std::vector<signature_result> scanner::scan(byte_view data) const {
                 if(!result) {
                     return true;
                 }
-                if(result->offset > data.size() || result->size > data.size() - result->offset) {
+                if(!result_within(*result, data)) {
                     return true;
                 }
 
@@ -330,24 +364,35 @@ std::unordered_map<std::string, extraction_result> scanner::extract(
         if(identified.extraction_declined) {
             continue;
         }
-        const auto definition = std::find_if(
-            implementation_->signatures.begin(),
-            implementation_->signatures.end(),
-            [&](const auto& candidate) { return candidate.name == identified.name; }
-        );
-        if(definition == implementation_->signatures.end() || !definition->extractor_definition) {
-            continue;
+
+        const extractor* selected = identified.preferred_extractor
+            ? &*identified.preferred_extractor
+            : nullptr;
+        if(selected == nullptr) {
+            const auto definition = std::find_if(
+                implementation_->signatures.begin(),
+                implementation_->signatures.end(),
+                [&](const auto& candidate) { return candidate.name == identified.name; }
+            );
+            if(definition == implementation_->signatures.end()
+                || !definition->extractor_definition) {
+                continue;
+            }
+            selected = &*definition->extractor_definition;
         }
-        results.emplace(
-            identified.id,
-            execute_extractor(
-                data,
-                source_path,
-                identified,
-                *definition->extractor_definition,
-                output_root
-            )
-        );
+        auto extraction = execute_extractor(data, source_path, identified, *selected, output_root);
+
+        const auto available = identified.offset <= data.size()
+            ? static_cast<std::uint64_t>(data.size()) - identified.offset
+            : std::uint64_t{0};
+        if(!extraction.success && identified.size < available) {
+            signature_result widened = identified;
+            widened.size = available;
+
+            extraction = execute_extractor(data, source_path, widened, *selected, output_root);
+        }
+
+        results.emplace(identified.id, std::move(extraction));
     }
     return results;
 }
@@ -372,11 +417,11 @@ std::size_t scanner::signature_count() const noexcept {
 }
 
 std::size_t scanner::pattern_count() const noexcept {
-    return implementation_->patterns.size();
+    return implementation_->pattern_total;
 }
 
 const std::vector<signature>& scanner::signatures() const noexcept {
     return implementation_->signatures;
 }
 
-} // namespace binwalk
+}

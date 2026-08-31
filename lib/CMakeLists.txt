@@ -7,9 +7,34 @@ target_sources(
         src/builtin.cpp
         src/builtin_extractors.cpp
         src/carving.cpp
+        src/chroot.cpp
+        src/common.cpp
         src/entropy.cpp
         src/extractor.cpp
+        src/process.cpp
         src/scanner.cpp
+        src/codec/codec.cpp
+        src/codec/bzip2_codec.cpp
+        src/codec/lz4_codec.cpp
+        src/codec/lzfse_codec.cpp
+        src/codec/lzo_codec.cpp
+        src/codec/xz_codec.cpp
+        src/codec/zlib_codec.cpp
+        src/codec/zstd_codec.cpp
+        src/formats/b1_compression.cpp
+        src/formats/b2_media.cpp
+        src/formats/b3_constants.cpp
+        src/formats/b4_encrypted.cpp
+        src/formats/b5_vendorhdr.cpp
+        src/formats/b6_vendorcarve.cpp
+        src/formats/b7_archives.cpp
+        src/formats/b8a_filesystems.cpp
+        src/formats/b8b_volumes.cpp
+        src/formats/b9a_squashfs.cpp
+        src/formats/b9b_jffs2_yaffs.cpp
+        src/formats/b9c_ubi.cpp
+        src/formats/b10a_kernels.cpp
+        src/formats/b10b_executables.cpp
 )
 
 target_compile_features(binwalk_core PUBLIC cxx_std_17)
@@ -17,6 +42,39 @@ target_compile_features(binwalk_core PUBLIC cxx_std_17)
 if(BINWALK_WITH_ZLIB)
     target_link_libraries(binwalk_core PRIVATE ${BINWALK_ZLIB_TARGET})
     target_compile_definitions(binwalk_core PRIVATE BINWALK_HAS_ZLIB=1)
+endif()
+
+# The five fetched codec libraries are declared EXCLUDE_FROM_ALL, which drops
+# their install rules, so none of them lands in any export set. The
+# $<BUILD_INTERFACE:...> wrapper is therefore load-bearing, not decoration: a
+# bare link line makes install(EXPORT binwalkTargets) fail with "requires target
+# X that is not in any export set". zlib above is the one exemption, because it
+# keeps its own install/export.
+if(BINWALK_WITH_BZIP2)
+    target_link_libraries(binwalk_core PRIVATE "$<BUILD_INTERFACE:${BINWALK_BZIP2_TARGET}>")
+    target_compile_definitions(binwalk_core PRIVATE BINWALK_HAS_BZIP2=1)
+endif()
+if(BINWALK_WITH_LZMA)
+    target_link_libraries(binwalk_core PRIVATE "$<BUILD_INTERFACE:${BINWALK_LZMA_TARGET}>")
+    target_compile_definitions(binwalk_core PRIVATE BINWALK_HAS_LZMA=1)
+endif()
+if(BINWALK_WITH_LZ4)
+    target_link_libraries(binwalk_core PRIVATE "$<BUILD_INTERFACE:${BINWALK_LZ4_TARGET}>")
+    target_compile_definitions(binwalk_core PRIVATE BINWALK_HAS_LZ4=1)
+endif()
+if(BINWALK_WITH_ZSTD)
+    target_link_libraries(binwalk_core PRIVATE "$<BUILD_INTERFACE:${BINWALK_ZSTD_TARGET}>")
+    target_compile_definitions(binwalk_core PRIVATE BINWALK_HAS_ZSTD=1)
+endif()
+if(BINWALK_WITH_LZFSE)
+    target_link_libraries(binwalk_core PRIVATE "$<BUILD_INTERFACE:${BINWALK_LZFSE_TARGET}>")
+    target_compile_definitions(binwalk_core PRIVATE BINWALK_HAS_LZFSE=1)
+endif()
+if(BINWALK_WITH_LZO)
+    # No link line on purpose: the LZO1X decoder is our own code, written from
+    # scratch because liblzo2 and minilzo are both GPL-2.0 and barred from the
+    # core by contract §7b. BINWALK_LZO_TARGET is deliberately empty.
+    target_compile_definitions(binwalk_core PRIVATE BINWALK_HAS_LZO=1)
 endif()
 target_include_directories(
     binwalk_core

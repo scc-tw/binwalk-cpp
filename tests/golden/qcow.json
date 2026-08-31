@@ -1,0 +1,16 @@
+{
+  "file_name": "qcow.bin",
+  "file_map": [
+    {
+      "offset": 0,
+      "size": 512,
+      "name": "qcow",
+      "confidence": 128,
+      "confidence_tier": "medium",
+      "description": "QEMU QCOW Image, version: 3, storage media size: 0x400 bytes, cluster block size: 0x10000 bytes, encryption method: None",
+      "always_display": true,
+      "extraction_declined": false
+    }
+  ],
+  "extractions": {}
+}
