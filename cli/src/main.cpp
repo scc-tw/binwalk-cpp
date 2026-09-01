@@ -1,5 +1,7 @@
 #include <binwalk/binwalk.hpp>
 
+#include "mapped_file.hpp"
+
 #include <CLI/CLI.hpp>
 #include <nlohmann/json.hpp>
 
@@ -27,7 +29,6 @@
 #include <iomanip>
 #include <iostream>
 #include <iterator>
-#include <optional>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -129,16 +130,6 @@ void print_delimiter() {
         return static_cast<char>(std::tolower(character));
     });
     return value;
-}
-
-[[nodiscard]] std::optional<std::vector<std::uint8_t>> read_file(const std::string& path) {
-    std::ifstream input(path, std::ios::binary);
-    if(!input) {
-        return std::nullopt;
-    }
-    return std::vector<std::uint8_t>(
-        std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()
-    );
 }
 
 [[nodiscard]] std::vector<std::uint8_t> read_stdin() {
@@ -630,18 +621,15 @@ struct worker_result {
     const std::string& carve_directory
 ) {
     worker_result result;
-    const auto data = read_file(path);
-    if(!data) {
+    binwalk_cli::mapped_file contents;
+    if(!binwalk_cli::mapped_file::open(path, contents)) {
         result.error = "Failed to read " + path;
         return result;
     }
-    result.analysis = scanner.analyze(
-        binwalk::byte_view(*data), path, extract, analysis_directory
-    );
+    result.analysis = scanner.analyze(contents.view(), path, extract, analysis_directory);
     if(carve) {
-        result.carve_success = carve_analysis(
-            binwalk::byte_view(*data), result.analysis, carve_directory
-        );
+        result.carve_success =
+            carve_analysis(contents.view(), result.analysis, carve_directory);
     }
     result.success = true;
     return result;
@@ -698,7 +686,7 @@ int main(int argc, char** argv) {
     include_option->excludes(exclude_option);
     entropy_option->excludes(extract_option);
 
-    const auto registry = binwalk::builtin_signatures();
+    auto registry = binwalk::builtin_signatures();
     std::unordered_set<std::string> registry_names;
     std::unordered_map<std::string, std::string> canonical_names;
     registry_names.reserve(registry.size());
@@ -734,11 +722,17 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    binwalk::scanner scanner({
-        resolve_filters(include, canonical_names),
-        resolve_filters(exclude, canonical_names),
-        search_all
-    });
+    const auto worker_count = threads > 0 ? threads : binwalk::recommended_scan_threads();
+
+    binwalk::scanner scanner(
+        std::move(registry),
+        {
+            resolve_filters(include, canonical_names),
+            resolve_filters(exclude, canonical_names),
+            search_all,
+            worker_count
+        }
+    );
 
     json_logger logger;
     logger.open(log_path);
@@ -752,26 +746,26 @@ int main(int argc, char** argv) {
         }
     };
 
-    std::vector<std::uint8_t> data;
+    std::vector<std::uint8_t> piped;
+    binwalk_cli::mapped_file contents;
     std::string display_name = file_name;
     if(use_stdin) {
         display_name = "stdin";
-        data = read_stdin();
+        piped = read_stdin();
     } else {
         if(file_name.empty()) {
             std::cerr << "A file path or --stdin is required.\n";
             return 2;
         }
-        auto file_data = read_file(file_name);
-        if(!file_data) {
+        if(!binwalk_cli::mapped_file::open(file_name, contents)) {
             std::cerr << "Failed to read " << file_name << "\n";
             return 1;
         }
-        data = std::move(*file_data);
     }
+    const binwalk::byte_view data = use_stdin ? binwalk::byte_view(piped) : contents.view();
 
     if(entropy) {
-        const auto blocks = binwalk::entropy_blocks(binwalk::byte_view(data));
+        const auto blocks = binwalk::entropy_blocks(data);
         if(!png.empty() && !binwalk::write_entropy_png(blocks, png)) {
             std::cerr << "Failed to write entropy graph to " << png << "\n";
             return 1;
@@ -820,17 +814,14 @@ int main(int argc, char** argv) {
     };
 
     auto analysis = scanner.analyze(
-        binwalk::byte_view(data), display_name, extract, analysis_directory
+        data, display_name, extract, analysis_directory
     );
-    if(carve && !carve_analysis(binwalk::byte_view(data), analysis, directory)) {
+    if(carve && !carve_analysis(data, analysis, directory)) {
         std::cerr << "One or more data blocks could not be carved.\n";
         carve_failed = true;
     }
     process_result(analysis);
 
-    const auto worker_count = threads > 0
-        ? threads
-        : std::max<std::size_t>(1, std::thread::hardware_concurrency());
     while(!pending.empty()) {
         const auto batch_size = std::min(worker_count, pending.size());
         std::vector<std::future<worker_result>> workers;

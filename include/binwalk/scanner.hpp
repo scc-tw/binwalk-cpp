@@ -16,7 +16,10 @@ struct scan_options {
     std::vector<std::string> include;
     std::vector<std::string> exclude;
     bool search_all = false;
+    std::size_t worker_threads = 0;
 };
+
+[[nodiscard]] BINWALK_API std::size_t recommended_scan_threads() noexcept;
 
 class BINWALK_API scanner {
 public:

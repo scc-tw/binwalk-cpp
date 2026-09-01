@@ -77,6 +77,8 @@ template<typename Integer, std::enable_if_t<std::is_integral_v<Integer>, int> = 
 
 [[nodiscard]] BINWALK_API bool is_printable_ascii(std::uint8_t value) noexcept;
 
+[[nodiscard]] BINWALK_API std::size_t cstring_length(byte_view data) noexcept;
+
 [[nodiscard]] BINWALK_API std::vector<std::uint8_t> get_cstring_bytes(byte_view data);
 
 [[nodiscard]] BINWALK_API std::string get_cstring(byte_view data);

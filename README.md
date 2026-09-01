@@ -16,6 +16,9 @@ or run-time dependencies.
   magic patterns.
 - Aho-Corasick scanning with format-specific validation, confidence ranking,
   overlap filtering, include/exclude filters, and an all-offset search mode.
+- A scan that runs several automaton walks at once, over disjoint slices of the
+  same window and across cores, and reads the image through a memory mapping
+  rather than a copy. See [Performance](#performance).
 - Built-in extraction for common compression, archive, image, filesystem, boot,
   executable, and vendor firmware formats.
 - Optional external extractors for formats handled by established native
@@ -89,6 +92,9 @@ ctest --test-dir build -C Release --output-on-failure
 | --- | --- | --- |
 | `BINWALK_BUILD_CLI` | `ON` | Build the `binwalk` command-line program. |
 | `BINWALK_BUILD_TESTS` | `BUILD_TESTING` | Build the GoogleTest suite. |
+| `BINWALK_BUILD_BENCH` | `OFF` | Build the throughput harnesses under `bench/`. |
+| `BINWALK_PROFILE_COUNTERS` | `OFF` | Report scanner hot-path counters on exit. |
+| `BINWALK_ENABLE_IPO` | `ON` | Link-time optimisation for optimised builds. |
 | `BINWALK_FETCH_DEPENDENCIES` | `ON` | Fetch missing dependencies at pinned tags. |
 | `BUILD_SHARED_LIBS` | `OFF` | Build `binwalk::core` as a shared rather than static library. |
 | `BINWALK_WITH_ZLIB` | `ON` | Enable deflate, zlib, and gzip support through zlib. |
@@ -287,6 +293,109 @@ int main() {
 The umbrella header also exposes extraction, carving, entropy, codec, binary
 reader, safe-write, process, result, and signature APIs.
 
+## Performance
+
+Measured on one machine (8-core Ryzen 7 PRO 6850U, MSVC Release), best of five,
+using the CLI's own elapsed figure so process start-up is excluded. `baseline`
+is this tree before the scanner was reworked; the corpus comes from
+[`bench/make_corpus.py`](bench/make_corpus.py) and the harnesses are described
+in [`bench/README.md`](bench/README.md). Times cover reading the file as well as
+scanning it, and every corpus produces an identical file map either way.
+
+The machine is a laptop that clocks down as it warms, so both columns were taken
+with it otherwise idle. Repeating the run on a hot machine moves every absolute
+figure by up to a fifth in either direction; the ratios hold.
+
+| corpus                  | baseline | now    | throughput | speed-up |
+| ----------------------- | -------- | ------ | ---------- | -------- |
+| 4 MiB, high entropy     | 43 ms    | 5 ms   | 800 MiB/s  | 9x       |
+| 4 MiB, all zeroes       | 39 ms    | 4 ms   | 1000 MiB/s | 10x      |
+| 16 MiB, firmware-like   | 12.8 s   | 12 ms  | 1333 MiB/s | 1070x    |
+| 64 MiB, high entropy    | 603 ms   | 25 ms  | 2560 MiB/s | 24x      |
+| 64 MiB, firmware-like   | 45.5 s   | 45 ms  | 1422 MiB/s | 1010x    |
+| 256 MiB, firmware-like  | 4.8 min  | 138 ms | 1855 MiB/s | 2090x    |
+
+The three-figure speed-ups are not a faster search: they are a parser that no
+longer walked the file, described below. The honest measure of the search
+itself is the high-entropy row, where nothing matches and there is nothing to
+parse — 24x — and the matcher microbenchmark, which puts the automaton walk at
+500 MiB/s before and 1.9 GiB/s after on one thread.
+
+Small inputs are dominated by fixed costs — building the registry, and on
+Windows roughly 40 ms of process start-up that no scanner controls — so the
+larger corpora are the ones that say anything about scanning.
+
+### Where the time went
+
+**A parser that walked the file.** The 16 MiB case above took 12.8 seconds
+because `Linux version ` appears in firmware text thousands of times, and the
+kernel-version parser copied everything from each hit to the next NUL byte
+before testing anything. Over a text region that has no NUL bytes, that is the
+whole region per hit, and the scan is quadratic in its length. The predicates
+now run cheapest-first over the raw bytes — three byte compares reject nearly
+everything — and the string is built only for a candidate that has survived all
+of them. `--search-all` had the same shape in the S-record footer search, which
+now skips between line terminators with `memchr` instead of testing every byte.
+
+**Answering the same question repeatedly.** `get_cstring` walked to the
+terminator one `push_back` at a time, then validated UTF-8, then copied again.
+It now finds the terminator with `memchr` and builds the string once. On top of
+that, a scan asks where a run ends at thousands of offsets inside the same run,
+so `scanner::scan` arms a memo of the run it has already proven clean; the
+answers are unchanged, but the work across a whole scan is linear rather than
+quadratic. The memo is armed by a scope object rather than left permanently
+live, which is what makes it sound: the scope pins the buffer its cached
+pointers refer to.
+
+**A search that waited on memory.** Walking an Aho-Corasick automaton is a chain
+of dependent loads — the next state cannot be computed until the current one has
+arrived — so a core spends most of every load's latency idle. The matcher now
+runs eight walks at once over disjoint slices of the same 64 KiB window, which
+fills those slots with work that does not depend on them; whole batches of
+windows then go to a pool of threads, one per physical core. Two details make it
+pay: the states are renumbered so that a reportable one is recognised by a
+compare against a register rather than a second table load, and each slice is
+reached through a compile-time displacement off a single cursor so all eight
+walk states stay in registers. Alone the interleaving takes the matcher from
+500 MiB/s to 1.9 GiB/s on this machine; the threads take match-free data past
+6 GiB/s.
+
+It is the same automaton over the same bytes in the same order, so it cannot
+report anything the single walk would not — and the test suite holds both
+backends to the same output, byte for byte, on random, repetitive and
+match-dense inputs and at every window boundary.
+
+**Restarting the search.** A confident result claims the bytes it covers, and
+the scan used to restart the search after each one. Under a thread pool that
+threw away a whole batch per result. Because a walk begun at an offset reports
+exactly the matches that start at or after it, raising a floor over one
+continuous walk gives the same answer for one pass instead of one per result.
+
+**Reading the file.** The CLI read images a byte at a time through
+`istreambuf_iterator`, at about 180 MiB/s. It now maps the file and tells the
+kernel the access is sequential, which is both faster than a bulk read — no
+copy — and does not need the image resident in the heap. A pipe, or anything the
+platform will not map, still falls back to a single bulk read.
+
+Smaller pieces: CRC-32 folds eight bytes per step through sliced tables instead
+of one, the entropy histogram uses four interleaved tallies so that repeated
+bytes do not serialise on one counter, and result identifiers are formatted
+directly rather than through a string stream.
+
+### Portability
+
+Nothing above is tied to one processor. The vector work is what the compiler
+and the C library already do (`memchr`, `memcmp`); the interleaving is ordinary
+scalar code whose benefit comes from instruction-level parallelism, so it needs
+no instruction-set baseline beyond the one the project already targets and
+behaves the same on x86-64 and AArch64. Thread count is read from the topology
+rather than assumed, and `scan_options::worker_threads` leaves the choice with
+the caller: `0` or `1` keeps a scan entirely on the calling thread.
+
+A scanner shared between threads lends its workers to one scan at a time, so a
+caller already running a scan per file keeps its own parallelism and never
+oversubscribes.
+
 ## Verification
 
 The test suite covers registry order and metadata, format parsing, malformed and
@@ -306,6 +415,7 @@ not installed. A skipped external-tool test is distinct from a failed test.
 ## Repository layout
 
 ```text
+bench/               throughput harnesses and the corpus generator
 cli/                 command-line frontend
 cmake/               dependency and package configuration
 include/binwalk/     installed public headers

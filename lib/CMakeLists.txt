@@ -9,6 +9,9 @@ target_sources(
         src/carving.cpp
         src/chroot.cpp
         src/common.cpp
+        src/detail/cpu_topology.cpp
+        src/detail/literal_matcher.cpp
+        src/detail/task_pool.cpp
         src/entropy.cpp
         src/extractor.cpp
         src/process.cpp
@@ -38,6 +41,11 @@ target_sources(
 )
 
 target_compile_features(binwalk_core PUBLIC cxx_std_17)
+target_link_libraries(binwalk_core PUBLIC Threads::Threads)
+
+if(BINWALK_PROFILE_COUNTERS)
+    target_compile_definitions(binwalk_core PRIVATE BINWALK_PROFILE_COUNTERS=1)
+endif()
 
 if(BINWALK_WITH_ZLIB)
     target_link_libraries(binwalk_core PRIVATE ${BINWALK_ZLIB_TARGET})
@@ -96,6 +104,7 @@ set_target_properties(
 )
 
 binwalk_enable_warnings(binwalk_core)
+binwalk_enable_optimisation(binwalk_core)
 
 install(
     TARGETS binwalk_core

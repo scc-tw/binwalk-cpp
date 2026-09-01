@@ -17,6 +17,8 @@ add_executable(binwalk_tests ${BINWALK_UNIT_TEST_SOURCES})
 target_compile_features(binwalk_tests PRIVATE cxx_std_17)
 target_link_libraries(binwalk_tests PRIVATE binwalk::core GTest::gtest_main)
 
+target_include_directories(binwalk_tests PRIVATE "${PROJECT_SOURCE_DIR}/lib/src")
+
 if(BINWALK_BUILD_CLI)
     target_sources(binwalk_tests PRIVATE integration/cli_test.cpp)
     target_link_libraries(binwalk_tests PRIVATE nlohmann_json::nlohmann_json)

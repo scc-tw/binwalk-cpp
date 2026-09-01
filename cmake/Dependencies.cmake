@@ -37,9 +37,9 @@ function(binwalk_find_or_fetch package target repository tag)
     endif()
 endfunction()
 
-if(BINWALK_BUILD_CLI)
-    find_package(Threads REQUIRED)
+find_package(Threads REQUIRED)
 
+if(BINWALK_BUILD_CLI)
     set(CLI11_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(CLI11_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(CLI11_BUILD_DOCS OFF CACHE BOOL "" FORCE)

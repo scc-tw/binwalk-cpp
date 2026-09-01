@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <optional>
 #include <string>
@@ -1186,12 +1187,25 @@ namespace {
     }
     const std::size_t available_data = data.size();
 
-    for(std::size_t cursor = offset; data.contains(cursor, footer_length); ++cursor) {
-        if(data[cursor] != unix_terminator || data[cursor + 1] != 'S') {
+    const auto* const base = data.data();
+    for(std::size_t cursor = offset; data.contains(cursor, footer_length);) {
+        const auto* const line = static_cast<const std::uint8_t*>(
+            std::memchr(base + cursor, unix_terminator, available_data - cursor)
+        );
+        if(line == nullptr) {
+            break;
+        }
+        cursor = static_cast<std::size_t>(line - base);
+        if(!data.contains(cursor, footer_length)) {
+            break;
+        }
+        if(data[cursor + 1] != 'S') {
+            ++cursor;
             continue;
         }
         const std::uint8_t record_type = data[cursor + 2];
         if(record_type != '9' && record_type != '8' && record_type != '7') {
+            ++cursor;
             continue;
         }
 
@@ -1223,6 +1237,7 @@ namespace {
             return std::nullopt;
         }
 
+        ++cursor;
     }
     return std::nullopt;
 }

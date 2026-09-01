@@ -44,6 +44,49 @@ void append_png_chunk(
 }
 #endif
 
+constexpr std::size_t tally_lanes = 4;
+constexpr auto largest_block_a_narrow_tally_holds =
+    static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max());
+
+using byte_frequencies = std::array<std::uint64_t, 256>;
+using interleaved_tallies = std::array<std::array<std::uint32_t, 256>, tally_lanes>;
+
+[[nodiscard]] byte_frequencies count_bytes(const std::uint8_t* bytes, std::size_t size) noexcept {
+    byte_frequencies frequencies{};
+    for(std::size_t index = 0; index < size; ++index) {
+        ++frequencies[bytes[index]];
+    }
+    return frequencies;
+}
+
+[[nodiscard]] byte_frequencies count_bytes_with_interleaved_tallies(
+    const std::uint8_t* bytes,
+    std::size_t size,
+    interleaved_tallies& tallies
+) noexcept {
+    for(auto& tally : tallies) {
+        tally.fill(0);
+    }
+
+    std::size_t index = 0;
+    for(; index + tally_lanes <= size; index += tally_lanes) {
+        ++tallies[0][bytes[index]];
+        ++tallies[1][bytes[index + 1]];
+        ++tallies[2][bytes[index + 2]];
+        ++tallies[3][bytes[index + 3]];
+    }
+    for(; index < size; ++index) {
+        ++tallies[0][bytes[index]];
+    }
+
+    byte_frequencies frequencies{};
+    for(std::size_t value = 0; value < frequencies.size(); ++value) {
+        frequencies[value] = std::uint64_t{tallies[0][value]} + tallies[1][value]
+            + tallies[2][value] + tallies[3][value];
+    }
+    return frequencies;
+}
+
 struct rgb_image {
     rgb_image(std::uint32_t width_value, std::uint32_t height_value)
         : width(width_value), height(height_value), pixels(
@@ -100,12 +143,15 @@ std::vector<entropy_block> entropy_blocks(byte_view data, std::size_t target_blo
         : data.size() / target_block_count;
     result.reserve((data.size() + block_size - 1) / block_size);
 
+    interleaved_tallies tallies{};
+
     for(std::size_t start = 0; start < data.size(); start += block_size) {
         const auto size = std::min(block_size, data.size() - start);
-        std::array<std::size_t, 256> frequencies{};
-        for(std::size_t index = 0; index < size; ++index) {
-            ++frequencies[data[start + index]];
-        }
+        const auto* const bytes = data.data() + start;
+
+        const auto frequencies = size <= largest_block_a_narrow_tally_holds
+            ? count_bytes_with_interleaved_tallies(bytes, size, tallies)
+            : count_bytes(bytes, size);
 
         double entropy = 0.0;
         for(const auto count : frequencies) {

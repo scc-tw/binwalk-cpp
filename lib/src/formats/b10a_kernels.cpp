@@ -8,8 +8,10 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 namespace binwalk {
 namespace {
@@ -492,25 +494,36 @@ constexpr std::uint8_t linux_symtab_magic[] = {
 
 [[nodiscard]] bool has_linux_symbol_table(byte_view data) noexcept {
     constexpr std::size_t magic_size = sizeof(linux_symtab_magic);
+    constexpr std::size_t anchor_index = 1;
+    constexpr std::uint8_t anchor_byte = linux_symtab_magic[anchor_index];
     if(data.size() < magic_size) {
         return false;
     }
+
+    const auto* const begin = data.data();
+    const std::size_t last_start = data.size() - magic_size;
     std::size_t match_count = 0;
-    const std::size_t last = data.size() - magic_size;
-    for(std::size_t index = 0; index <= last; ++index) {
-        bool matched = true;
-        for(std::size_t byte = 0; byte < magic_size; ++byte) {
-            if(data[index + byte] != linux_symtab_magic[byte]) {
-                matched = false;
-                break;
-            }
+    std::size_t cursor = anchor_index;
+
+    while(cursor < data.size()) {
+        const auto* const anchor = static_cast<const std::uint8_t*>(
+            std::memchr(begin + cursor, anchor_byte, data.size() - cursor)
+        );
+        if(anchor == nullptr) {
+            break;
         }
-        if(matched) {
+        const auto position = static_cast<std::size_t>(anchor - begin);
+        const auto start = position - anchor_index;
+        if(start > last_start) {
+            break;
+        }
+        if(std::memcmp(begin + start, linux_symtab_magic, magic_size) == 0) {
             ++match_count;
             if(match_count > 1) {
                 return false;
             }
         }
+        cursor = position + 1;
     }
     return match_count == 1;
 }
@@ -833,22 +846,36 @@ struct format_traits<linux_kernel_format> {
             return std::nullopt;
         }
 
-        const auto version = get_cstring(data, offset, data.size() - offset);
-        if(version.size() <= minimum_version_length) {
-            return std::nullopt;
-        }
-        if(version.find("gcc ") == std::string::npos) {
-            return std::nullopt;
-        }
-        if(version.find('@') == std::string::npos) {
-            return std::nullopt;
-        }
-        if(version.back() != '\n') {
+        const byte_view tail = data.subview(offset, data.size() - offset);
+        if(!tail.contains(0, minimum_version_length + 1)) {
             return std::nullopt;
         }
 
-        if(version[period_offset_1] != '.'
-            || (version[period_offset_2] != '.' && version[period_offset_3] != '.')) {
+        if(tail[period_offset_1] != '.'
+            || (tail[period_offset_2] != '.' && tail[period_offset_3] != '.')) {
+            return std::nullopt;
+        }
+
+        const auto version_length = cstring_length(tail);
+        if(version_length <= minimum_version_length) {
+            return std::nullopt;
+        }
+
+        const std::string_view raw(
+            reinterpret_cast<const char*>(tail.data()), version_length
+        );
+        if(raw.back() != '\n') {
+            return std::nullopt;
+        }
+        if(raw.find('@') == std::string_view::npos) {
+            return std::nullopt;
+        }
+        if(raw.find("gcc ") == std::string_view::npos) {
+            return std::nullopt;
+        }
+
+        const auto version = get_cstring(tail);
+        if(version.size() != version_length) {
             return std::nullopt;
         }
 

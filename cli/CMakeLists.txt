@@ -12,6 +12,7 @@ target_link_libraries(
 )
 
 binwalk_enable_warnings(binwalk_cli)
+binwalk_enable_optimisation(binwalk_cli)
 
 if(WIN32 AND BUILD_SHARED_LIBS)
     add_custom_command(

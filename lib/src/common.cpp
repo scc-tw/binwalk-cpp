@@ -1,9 +1,12 @@
 #include <binwalk/common.hpp>
 
+#include "detail/cstring_length_memo.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <ctime>
 #include <iomanip>
 #include <limits>
@@ -57,13 +60,81 @@ constexpr std::uint32_t forward_polynomial = 0x04C11DB7U;
 constexpr crc_table reflected_table = make_reflected_table(reflected_polynomial);
 constexpr crc_table forward_table = make_forward_table(forward_polynomial);
 
-[[nodiscard]] std::uint32_t reflected_advance(std::uint32_t register_value, byte_view data) noexcept {
+[[nodiscard]] std::uint32_t to_little_endian(std::uint32_t value) noexcept {
+    constexpr std::uint32_t probe = 1;
+    const auto* const first = reinterpret_cast<const unsigned char*>(&probe);
+    if(*first == 1) {
+        return value;
+    }
+    return ((value & 0x000000FFU) << 24U) | ((value & 0x0000FF00U) << 8U)
+        | ((value & 0x00FF0000U) >> 8U) | ((value & 0xFF000000U) >> 24U);
+}
 
-    for(std::size_t index = 0; data.contains(index); ++index) {
-        const std::uint32_t slot =
-            (register_value ^ static_cast<std::uint32_t>(data[index])) & 0xFFU;
-        register_value = reflected_table[static_cast<std::size_t>(slot)]
-            ^ static_cast<std::uint32_t>(register_value >> 8U);
+constexpr std::size_t crc_bytes_per_slice_step = 8;
+
+using crc_slice_table = std::array<crc_table, crc_bytes_per_slice_step>;
+
+[[nodiscard]] constexpr crc_slice_table make_reflected_slices(const crc_table& base) noexcept {
+    crc_slice_table slices{};
+    slices[0] = base;
+    for(std::size_t index = 0; index < crc_table_size; ++index) {
+        for(std::size_t slice = 1; slice < slices.size(); ++slice) {
+            const auto previous = slices[slice - 1][index];
+            slices[slice][index] =
+                base[static_cast<std::size_t>(previous & 0xFFU)] ^ (previous >> 8U);
+        }
+    }
+    return slices;
+}
+
+constexpr crc_slice_table reflected_slices = make_reflected_slices(reflected_table);
+
+constexpr std::size_t crc_smallest_worthwhile_slice_run = 64;
+
+[[nodiscard]] std::uint32_t reflected_advance_eight_bytes(
+    std::uint32_t register_value,
+    const std::uint8_t* bytes
+) noexcept {
+    std::uint32_t low = 0;
+    std::uint32_t high = 0;
+    std::memcpy(&low, bytes, sizeof(low));
+    std::memcpy(&high, bytes + sizeof(low), sizeof(high));
+    low = to_little_endian(low) ^ register_value;
+    high = to_little_endian(high);
+
+    return reflected_slices[7][static_cast<std::size_t>(low & 0xFFU)]
+        ^ reflected_slices[6][static_cast<std::size_t>((low >> 8U) & 0xFFU)]
+        ^ reflected_slices[5][static_cast<std::size_t>((low >> 16U) & 0xFFU)]
+        ^ reflected_slices[4][static_cast<std::size_t>((low >> 24U) & 0xFFU)]
+        ^ reflected_slices[3][static_cast<std::size_t>(high & 0xFFU)]
+        ^ reflected_slices[2][static_cast<std::size_t>((high >> 8U) & 0xFFU)]
+        ^ reflected_slices[1][static_cast<std::size_t>((high >> 16U) & 0xFFU)]
+        ^ reflected_slices[0][static_cast<std::size_t>((high >> 24U) & 0xFFU)];
+}
+
+[[nodiscard]] std::uint32_t reflected_advance_one_byte(
+    std::uint32_t register_value,
+    std::uint8_t byte
+) noexcept {
+    const std::uint32_t slot = (register_value ^ static_cast<std::uint32_t>(byte)) & 0xFFU;
+    return reflected_table[static_cast<std::size_t>(slot)]
+        ^ static_cast<std::uint32_t>(register_value >> 8U);
+}
+
+[[nodiscard]] std::uint32_t reflected_advance(std::uint32_t register_value, byte_view data) noexcept {
+    const auto* bytes = data.data();
+    auto remaining = data.size();
+
+    if(remaining >= crc_smallest_worthwhile_slice_run) {
+        while(remaining >= crc_bytes_per_slice_step) {
+            register_value = reflected_advance_eight_bytes(register_value, bytes);
+            bytes += crc_bytes_per_slice_step;
+            remaining -= crc_bytes_per_slice_step;
+        }
+    }
+
+    for(std::size_t index = 0; index < remaining; ++index) {
+        register_value = reflected_advance_one_byte(register_value, bytes[index]);
     }
     return register_value;
 }
@@ -96,11 +167,66 @@ constexpr crc_table forward_table = make_forward_table(forward_polynomial);
     return output.str();
 }
 
-[[nodiscard]] bool is_valid_utf8(const std::vector<std::uint8_t>& bytes) noexcept {
-    const std::size_t length = bytes.size();
+[[nodiscard]] const std::uint8_t* find_terminator(
+    const std::uint8_t* begin,
+    std::size_t length
+) noexcept {
+    if(length == 0) {
+        return nullptr;
+    }
+
+    const void* const found = std::memchr(begin, 0, length);
+    return static_cast<const std::uint8_t*>(found);
+}
+
+struct memoised_run {
+    byte_view within;
+    const std::uint8_t* verified_begin = nullptr;
+    const std::uint8_t* verified_end = nullptr;
+    const std::uint8_t* terminator = nullptr;
+
+    [[nodiscard]] bool covers(const std::uint8_t* begin, const std::uint8_t* limit) const noexcept {
+        return within.data() != nullptr
+            && begin >= within.data()
+            && limit <= within.data() + within.size();
+    }
+
+    [[nodiscard]] bool starts_inside_verified_run(const std::uint8_t* begin) const noexcept {
+        return begin >= verified_begin && begin < verified_end;
+    }
+};
+
+[[nodiscard]] memoised_run& memoised_run_for_this_thread() noexcept {
+    static thread_local memoised_run run;
+    return run;
+}
+
+[[nodiscard]] std::size_t skip_ascii_octets(
+    const std::uint8_t* bytes,
+    std::size_t index,
+    std::size_t length
+) noexcept {
+    constexpr std::uint64_t high_bit_of_each_byte = 0x8080808080808080ULL;
+    while(length - index >= sizeof(std::uint64_t)) {
+        std::uint64_t octet = 0;
+        std::memcpy(&octet, bytes + index, sizeof(octet));
+        if((octet & high_bit_of_each_byte) != 0U) {
+            break;
+        }
+        index += sizeof(std::uint64_t);
+    }
+    return index;
+}
+
+[[nodiscard]] bool is_valid_utf8(const std::uint8_t* bytes, std::size_t length) noexcept {
     std::size_t index = 0;
 
     while(index < length) {
+        index = skip_ascii_octets(bytes, index, length);
+        if(index >= length) {
+            break;
+        }
+
         const std::uint8_t lead = bytes[index];
 
         if(lead <= 0x7F) {
@@ -133,7 +259,6 @@ constexpr crc_table forward_table = make_forward_table(forward_polynomial);
             sequence_length = 4;
             second_maximum = 0x8F;
         } else {
-
             return false;
         }
 
@@ -159,13 +284,29 @@ constexpr crc_table forward_table = make_forward_table(forward_polynomial);
     return true;
 }
 
-[[nodiscard]] std::string bytes_to_string(const std::vector<std::uint8_t>& bytes) {
-    std::string result;
-    result.reserve(bytes.size());
-    for(const std::uint8_t value : bytes) {
-        result.push_back(static_cast<char>(value));
-    }
-    return result;
+}
+
+namespace detail {
+
+cstring_length_memo::cstring_length_memo(byte_view data) noexcept {
+    auto& run = memoised_run_for_this_thread();
+    restored_view_ = run.within;
+    restored_verified_begin_ = run.verified_begin;
+    restored_verified_end_ = run.verified_end;
+    restored_terminator_ = run.terminator;
+
+    run.within = data;
+    run.verified_begin = nullptr;
+    run.verified_end = nullptr;
+    run.terminator = nullptr;
+}
+
+cstring_length_memo::~cstring_length_memo() {
+    auto& run = memoised_run_for_this_thread();
+    run.within = restored_view_;
+    run.verified_begin = static_cast<const std::uint8_t*>(restored_verified_begin_);
+    run.verified_end = static_cast<const std::uint8_t*>(restored_verified_end_);
+    run.terminator = static_cast<const std::uint8_t*>(restored_terminator_);
 }
 
 }
@@ -294,25 +435,53 @@ bool is_printable_ascii(std::uint8_t value) noexcept {
     return value >= ascii_minimum && value <= ascii_maximum;
 }
 
-std::vector<std::uint8_t> get_cstring_bytes(byte_view data) {
-
-    std::vector<std::uint8_t> result;
-    for(std::size_t index = 0; data.contains(index); ++index) {
-        const std::uint8_t value = data[index];
-        if(value == 0) {
-            break;
-        }
-        result.push_back(value);
+std::size_t cstring_length(byte_view data) noexcept {
+    if(data.empty()) {
+        return 0;
     }
-    return result;
+
+    const auto* const begin = data.data();
+    const auto* const limit = begin + data.size();
+
+    auto& run = memoised_run_for_this_thread();
+    const bool memoisable = run.covers(begin, limit);
+
+    if(memoisable && run.starts_inside_verified_run(begin)) {
+        if(limit <= run.verified_end) {
+            return data.size();
+        }
+        if(run.terminator != nullptr) {
+            return static_cast<std::size_t>(run.terminator - begin);
+        }
+
+        const auto* const extended = find_terminator(
+            run.verified_end, static_cast<std::size_t>(limit - run.verified_end)
+        );
+        run.verified_end = extended != nullptr ? extended : limit;
+        run.terminator = extended;
+        return static_cast<std::size_t>(run.verified_end - begin);
+    }
+
+    const auto* const found = find_terminator(begin, data.size());
+    if(memoisable) {
+        run.verified_begin = begin;
+        run.verified_end = found != nullptr ? found : limit;
+        run.terminator = found;
+    }
+    return found != nullptr ? static_cast<std::size_t>(found - begin) : data.size();
+}
+
+std::vector<std::uint8_t> get_cstring_bytes(byte_view data) {
+    const auto length = cstring_length(data);
+    return std::vector<std::uint8_t>(data.data(), data.data() + length);
 }
 
 std::string get_cstring(byte_view data) {
-    const std::vector<std::uint8_t> bytes = get_cstring_bytes(data);
-    if(!is_valid_utf8(bytes)) {
+    const auto length = cstring_length(data);
+    if(!is_valid_utf8(data.data(), length)) {
         return {};
     }
-    return bytes_to_string(bytes);
+    return std::string(reinterpret_cast<const char*>(data.data()), length);
 }
 
 std::string get_cstring(byte_view data, std::size_t offset, std::size_t max_length) {

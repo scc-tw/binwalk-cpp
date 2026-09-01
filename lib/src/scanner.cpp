@@ -1,102 +1,139 @@
 #include <binwalk/builtin.hpp>
 #include <binwalk/scanner.hpp>
 
+#include "detail/cpu_topology.hpp"
+#include "detail/literal_matcher.hpp"
+#include "detail/task_pool.hpp"
+#include "detail/cstring_length_memo.hpp"
+
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <iomanip>
 #include <limits>
-#include <queue>
+#include <mutex>
+#include <optional>
 #include <random>
-#include <sstream>
 #include <string>
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
+#if defined(BINWALK_PROFILE_COUNTERS)
+#    include <chrono>
+#    include <cstdio>
+#endif
+
 namespace binwalk {
 namespace {
+
+#if defined(BINWALK_PROFILE_COUNTERS)
+
+struct hot_path_profile {
+    std::uint64_t matches = 0;
+    std::uint64_t parser_calls = 0;
+    std::uint64_t parser_nanoseconds = 0;
+    std::vector<std::uint64_t> per_signature_nanoseconds;
+    std::vector<std::uint64_t> per_signature_calls;
+    std::vector<std::string> signature_names;
+
+    void account(std::size_t index, const std::string& name, std::uint64_t elapsed) {
+        if(per_signature_nanoseconds.size() <= index) {
+            per_signature_nanoseconds.resize(index + 1);
+            per_signature_calls.resize(index + 1);
+            signature_names.resize(index + 1);
+        }
+        per_signature_nanoseconds[index] += elapsed;
+        per_signature_calls[index] += 1;
+        signature_names[index] = name;
+        parser_nanoseconds += elapsed;
+        ++parser_calls;
+    }
+
+    ~hot_path_profile() {
+        std::fprintf(
+            stderr,
+            "[profile] matches=%llu parser_calls=%llu parser_ms=%.2f\n",
+            static_cast<unsigned long long>(matches),
+            static_cast<unsigned long long>(parser_calls),
+            static_cast<double>(parser_nanoseconds) / 1e6
+        );
+
+        std::vector<std::size_t> order(per_signature_nanoseconds.size());
+        for(std::size_t index = 0; index < order.size(); ++index) {
+            order[index] = index;
+        }
+        std::sort(order.begin(), order.end(), [this](std::size_t left, std::size_t right) {
+            return per_signature_nanoseconds[left] > per_signature_nanoseconds[right];
+        });
+        for(std::size_t rank = 0; rank < order.size() && rank < 12; ++rank) {
+            const auto index = order[rank];
+            if(per_signature_nanoseconds[index] == 0) {
+                break;
+            }
+            std::fprintf(
+                stderr,
+                "[profile]   %-24s %9.2f ms  %10llu calls  %8.3f us/call\n",
+                signature_names[index].c_str(),
+                static_cast<double>(per_signature_nanoseconds[index]) / 1e6,
+                static_cast<unsigned long long>(per_signature_calls[index]),
+                static_cast<double>(per_signature_nanoseconds[index]) / 1e3
+                    / static_cast<double>(per_signature_calls[index] | 1U)
+            );
+        }
+    }
+};
+
+[[nodiscard]] hot_path_profile& profile() {
+    static hot_path_profile value;
+    return value;
+}
+
+void count_match() noexcept {
+    ++profile().matches;
+}
+
+class parser_timer {
+public:
+    parser_timer(std::size_t index, const std::string& name)
+        : index_(index), name_(name), started_(std::chrono::steady_clock::now()) {}
+
+    ~parser_timer() {
+        profile().account(
+            index_,
+            name_,
+            static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now() - started_
+                ).count()
+            )
+        );
+    }
+
+    parser_timer(const parser_timer&) = delete;
+    parser_timer& operator=(const parser_timer&) = delete;
+
+private:
+    std::size_t index_;
+    const std::string& name_;
+    std::chrono::steady_clock::time_point started_;
+};
+
+#else
+
+inline void count_match() noexcept {}
+
+class parser_timer {
+public:
+    parser_timer(std::size_t, const std::string&) noexcept {}
+};
+
+#endif
 
 struct pattern_owner {
     std::size_t signature_index = 0;
     std::size_t pattern_size = 0;
-};
-
-class aho_corasick {
-public:
-    explicit aho_corasick(const std::vector<std::vector<std::uint8_t>>& patterns) {
-        nodes_.emplace_back();
-        for(std::size_t index = 0; index < patterns.size(); ++index) {
-            add(patterns[index], index);
-        }
-        build_failure_links();
-    }
-
-    template<typename Callback>
-    bool search(byte_view data, std::size_t start, Callback&& callback) const {
-        std::size_t state = 0;
-        for(std::size_t offset = start; offset < data.size(); ++offset) {
-            state = nodes_[state].next[data[offset]];
-            for(const auto pattern_index : nodes_[state].outputs) {
-                if(!callback(pattern_index, offset + 1)) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-
-private:
-    struct node {
-        std::array<std::size_t, 256> next{};
-        std::size_t failure = 0;
-        std::vector<std::size_t> outputs;
-    };
-
-    void add(const std::vector<std::uint8_t>& pattern, std::size_t pattern_index) {
-        std::size_t state = 0;
-        for(const auto byte : pattern) {
-            if(nodes_[state].next[byte] == 0) {
-                nodes_[state].next[byte] = nodes_.size();
-                nodes_.emplace_back();
-            }
-            state = nodes_[state].next[byte];
-        }
-        nodes_[state].outputs.push_back(pattern_index);
-    }
-
-    void build_failure_links() {
-        std::queue<std::size_t> pending;
-        for(std::size_t byte = 0; byte < 256; ++byte) {
-            const auto child = nodes_[0].next[byte];
-            if(child != 0) {
-                pending.push(child);
-            }
-        }
-
-        while(!pending.empty()) {
-            const auto state = pending.front();
-            pending.pop();
-
-            for(std::size_t byte = 0; byte < 256; ++byte) {
-                const auto child = nodes_[state].next[byte];
-                if(child != 0) {
-                    pending.push(child);
-                    const auto failure = nodes_[nodes_[state].failure].next[byte];
-                    nodes_[child].failure = failure;
-                    const auto& inherited = nodes_[failure].outputs;
-                    nodes_[child].outputs.insert(
-                        nodes_[child].outputs.end(), inherited.begin(), inherited.end()
-                    );
-                } else {
-                    nodes_[state].next[byte] = nodes_[nodes_[state].failure].next[byte];
-                }
-            }
-        }
-    }
-
-    std::vector<node> nodes_;
 };
 
 [[nodiscard]] bool result_within(const signature_result& result, byte_view data) noexcept {
@@ -128,15 +165,17 @@ private:
     bytes[6] = static_cast<std::uint8_t>((bytes[6] & 0x0fU) | 0x40U);
     bytes[8] = static_cast<std::uint8_t>((bytes[8] & 0x3fU) | 0x80U);
 
-    std::ostringstream output;
-    output << std::hex << std::setfill('0');
+    static constexpr char digits[] = "0123456789abcdef";
+    std::string text(36, '-');
+    std::size_t cursor = 0;
     for(std::size_t index = 0; index < bytes.size(); ++index) {
         if(index == 4 || index == 6 || index == 8 || index == 10) {
-            output << '-';
+            ++cursor;
         }
-        output << std::setw(2) << static_cast<unsigned>(bytes[index]);
+        text[cursor++] = digits[bytes[index] >> 4U];
+        text[cursor++] = digits[bytes[index] & 0x0FU];
     }
-    return output.str();
+    return text;
 }
 
 [[nodiscard]] std::string ascii_lowercase(std::string value) {
@@ -175,6 +214,10 @@ void populate(signature_result& result, const signature& definition) {
 
 }
 
+std::size_t recommended_scan_threads() noexcept {
+    return detail::physical_core_count();
+}
+
 struct scanner::implementation {
     explicit implementation(std::vector<signature> definitions, scan_options scan_options_value)
         : options(std::move(scan_options_value)) {
@@ -200,7 +243,18 @@ struct scanner::implementation {
                 patterns.push_back(pattern);
             }
         }
-        matcher = std::make_unique<aho_corasick>(patterns);
+        matcher = std::make_unique<detail::literal_matcher>(patterns);
+    }
+
+    [[nodiscard]] detail::task_pool* lend_workers(std::size_t size) {
+        constexpr std::size_t smallest_scan_worth_splitting = 1024 * 1024;
+        if(options.worker_threads <= 1 || size < smallest_scan_worth_splitting) {
+            return nullptr;
+        }
+        if(!workers) {
+            workers = std::make_unique<detail::task_pool>(options.worker_threads);
+        }
+        return workers.get();
     }
 
     void retain() noexcept {
@@ -221,7 +275,9 @@ struct scanner::implementation {
     std::vector<std::size_t> short_signature_indices;
     std::vector<std::vector<std::uint8_t>> patterns;
     std::vector<pattern_owner> pattern_owners;
-    std::unique_ptr<aho_corasick> matcher;
+    std::unique_ptr<detail::literal_matcher> matcher;
+    std::unique_ptr<detail::task_pool> workers;
+    std::mutex workers_in_use;
 };
 
 scanner::scanner() : scanner(builtin_signatures(), {}) {}
@@ -250,6 +306,8 @@ scanner::~scanner() {
 }
 
 std::vector<signature_result> scanner::scan(byte_view data) const {
+    const detail::cstring_length_memo memo(data);
+
     std::vector<signature_result> results;
 
     for(const auto signature_index : implementation_->short_signature_indices) {
@@ -276,47 +334,61 @@ std::vector<signature_result> scanner::scan(byte_view data) const {
         }
     }
 
-    std::size_t next_valid_offset = 0;
-    while(next_valid_offset < data.size()) {
-        auto new_offset = next_valid_offset;
-        implementation_->matcher->search(
-            data,
-            next_valid_offset,
-            [&](std::size_t pattern_index, std::size_t match_end) {
-                const auto& owner = implementation_->pattern_owners[pattern_index];
-                const auto& definition = implementation_->signatures[owner.signature_index];
-                const auto magic_offset = match_end - owner.pattern_size;
-                if(definition.parser == nullptr) {
-                    return true;
-                }
+    std::unique_lock<std::mutex> lease(implementation_->workers_in_use, std::try_to_lock);
+    auto* const workers =
+        lease.owns_lock() ? implementation_->lend_workers(data.size()) : nullptr;
 
-                auto result = definition.parser(data, magic_offset);
-                if(!result) {
-                    return true;
-                }
-                if(!result_within(*result, data)) {
-                    return true;
-                }
+    std::size_t first_unclaimed_offset = 0;
 
-                populate(*result, definition);
-                const auto result_end = static_cast<std::size_t>(result->offset + result->size);
-                const auto skip_contents = !implementation_->options.search_all
-                    && result->confidence >= confidence_medium
-                    && result->size > 0;
-                results.push_back(std::move(*result));
-                if(skip_contents) {
-                    new_offset = result_end;
-                    return false;
-                }
-                return true;
-            }
-        );
+    auto visit = [&](std::size_t pattern_index, std::size_t match_end) {
+        const auto& owner = implementation_->pattern_owners[pattern_index];
+        const auto& definition = implementation_->signatures[owner.signature_index];
+        const auto magic_offset = match_end - owner.pattern_size;
+        count_match();
 
-        if(new_offset <= next_valid_offset) {
-            break;
+        if(magic_offset < first_unclaimed_offset || definition.parser == nullptr) {
+            return true;
         }
-        next_valid_offset = new_offset;
-    }
+
+        std::optional<signature_result> result;
+        {
+            const parser_timer timing(owner.signature_index, definition.name);
+            result = definition.parser(data, magic_offset);
+        }
+        if(!result) {
+            return true;
+        }
+        if(!result_within(*result, data)) {
+            return true;
+        }
+
+        populate(*result, definition);
+        const auto result_end = static_cast<std::size_t>(result->offset + result->size);
+        const auto skip_contents = !implementation_->options.search_all
+            && result->confidence >= confidence_medium
+            && result->size > 0;
+        results.push_back(std::move(*result));
+
+        if(!skip_contents) {
+            return true;
+        }
+
+        if(result_end <= first_unclaimed_offset) {
+            return false;
+        }
+        first_unclaimed_offset = result_end;
+        return true;
+    };
+
+    implementation_->matcher->find(
+        data,
+        0,
+        [](void* raw, std::size_t pattern_index, std::size_t match_end) {
+            return (*static_cast<decltype(visit)*>(raw))(pattern_index, match_end);
+        },
+        &visit,
+        workers
+    );
 
     std::stable_sort(results.begin(), results.end());
     std::vector<signature_result> filtered;
